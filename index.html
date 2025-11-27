@@ -223,6 +223,17 @@
     input[type="range"].warn-red {
       accent-color: #f87171;
     }
+
+    .selection-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      border: 1px dashed #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      pointer-events: none;
+      display: none;
+      z-index: 2;
+    }
   </style>
   <script src="./vendor/imagetracer_v1.2.6.js"></script>
 </head>
@@ -289,6 +300,22 @@
         <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:90px;" />
         <input id="glowColor" type="color" value="#00ffff" />
       </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="bgColorPicker" style="margin:0;">Baggrund → transparent</label>
+        <input id="bgColorPicker" type="color" value="#000000" />
+        <button id="sampleBgBtn" class="secondary" style="padding:8px 12px;">Vælg fra PNG</button>
+        <button id="applyBgRemovalBtn" class="secondary" style="padding:8px 12px;">Fjern baggrund</button>
+      </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="exportWidth" style="margin:0;">Outputstørrelse (px)</label>
+        <input id="exportWidth" type="number" min="1" step="1" value="1024" style="width:90px;" />
+        <span style="color:var(--muted);">×</span>
+        <input id="exportHeight" type="number" min="1" step="1" value="1024" style="width:90px;" />
+        <label style="display:flex; align-items:center; gap:6px; margin:0;">
+          <input id="lockAspect" type="checkbox" checked />
+          <span>Lås højde/bredde-forhold</span>
+        </label>
+      </span>
       <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det.</span>
     </div>
 
@@ -324,6 +351,7 @@
         <div id="svgOutput" aria-live="polite">
           <div class="viewport" id="svgViewport">
             <div class="viewport-inner" id="svgInner"></div>
+            <div class="selection-overlay" id="selectionOverlay"></div>
           </div>
         </div>
       </div>
@@ -337,6 +365,8 @@
             <li>Klik på et SVG-element for at vælge det. Brug farvevælgeren til at ændre fill, og træk for at flytte.</li>
             <li>Download-knappen aktiveres efter en succesfuld konvertering.</li>
             <li>Zoom og panorér kun i PNG-previewet (venstreklik+træk for pan); udsnittet spejles automatisk til SVG-visningen.</li>
+            <li>Hold Shift nede og træk i SVG-visningen for at markere flere elementer med en ramme.</li>
+            <li>Brug "Vælg fra PNG" + "Fjern baggrund" til at gøre baggrunden transparent, og angiv outputstørrelse/forhold før download.</li>
           </ul>
         </div>
       </div>
@@ -385,6 +415,13 @@
     const glowNumber = document.getElementById('glowNumber');
     const glowValue = document.getElementById('glowValue');
     const glowColor = document.getElementById('glowColor');
+    const bgColorPicker = document.getElementById('bgColorPicker');
+    const sampleBgBtn = document.getElementById('sampleBgBtn');
+    const applyBgRemovalBtn = document.getElementById('applyBgRemovalBtn');
+    const exportWidth = document.getElementById('exportWidth');
+    const exportHeight = document.getElementById('exportHeight');
+    const lockAspect = document.getElementById('lockAspect');
+    const selectionOverlay = document.getElementById('selectionOverlay');
 
     function tracerIsReady() {
       return (
@@ -403,6 +440,10 @@
     let editingListenersBound = false;
     let cachedImageData = null;
     let cachedImageSignature = null;
+    let currentFileBase = 'vectorized';
+    let originalDimensions = { width: 1024, height: 1024 };
+    let backgroundPickMode = false;
+    let boxSelectState = null;
 
     function captureCurrentSVG() {
       const svgEl = svgOutput.querySelector('svg');
@@ -421,6 +462,8 @@
     let panOrigin = null;
     let spaceHeld = false;
     let viewportListenersBound = false;
+    let aspectRatio = 1;
+    let exportManualChange = false;
 
     function computePaletteSize(imageData) {
       const { data } = imageData;
@@ -521,6 +564,35 @@
 
     refreshColorBounds();
 
+    exportWidth.addEventListener('input', () => {
+      exportManualChange = true;
+      const width = clampDimension(exportWidth.value, originalDimensions.width || 1024);
+      if (!lockAspect.checked) {
+        const height = clampDimension(exportHeight.value, originalDimensions.height || 1024);
+        aspectRatio = height > 0 ? width / height : aspectRatio;
+      }
+      syncExportFromWidth(width);
+    });
+
+    exportHeight.addEventListener('input', () => {
+      exportManualChange = true;
+      const height = clampDimension(exportHeight.value, originalDimensions.height || 1024);
+      if (!lockAspect.checked) {
+        const width = clampDimension(exportWidth.value, originalDimensions.width || 1024);
+        aspectRatio = height > 0 ? width / height : aspectRatio;
+      }
+      syncExportFromHeight(height);
+    });
+
+    lockAspect.addEventListener('change', () => {
+      const width = clampDimension(exportWidth.value, originalDimensions.width || 1024);
+      const height = clampDimension(exportHeight.value, originalDimensions.height || 1024);
+      aspectRatio = height > 0 ? width / height : aspectRatio;
+      if (lockAspect.checked) {
+        syncExportFromWidth(width);
+      }
+    });
+
     uploadBtn.addEventListener('click', async (event) => {
       event.preventDefault();
       const file = fileInput.files?.[0];
@@ -538,6 +610,7 @@
       downloadBtn.disabled = true;
       clearSelection();
       updateEditControls();
+      backgroundPickMode = false;
       if (fileInput.files?.[0]) {
         setStatus('Fil valgt. Klik Upload for at indlæse previewet eller konvertér til SVG.');
       }
@@ -609,6 +682,12 @@
       container.addEventListener('mousedown', (event) => {
         const isPrimary = event.button === 0;
         if (!isPrimary) return;
+        if (backgroundPickMode && container === previewViewport) {
+          event.preventDefault();
+          pickBackgroundFromEvent(event);
+          backgroundPickMode = false;
+          return;
+        }
         event.preventDefault();
         isPanning = true;
         panOrigin = {
@@ -657,6 +736,62 @@
 
     bindViewportInteractions(previewViewport);
     applyViewport();
+
+    svgViewport.addEventListener('mousedown', (event) => {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+      if (!event.shiftKey || event.button !== 0) return;
+      event.preventDefault();
+      const rect = svgViewport.getBoundingClientRect();
+      boxSelectState = {
+        startX: event.clientX,
+        startY: event.clientY,
+        additive: event.ctrlKey || event.metaKey || event.shiftKey,
+      };
+      updateSelectionOverlay({ x: event.clientX - rect.left, y: event.clientY - rect.top, width: 0, height: 0 });
+    });
+
+    window.addEventListener('mousemove', (event) => {
+      if (!boxSelectState) return;
+      event.preventDefault();
+      const rect = svgViewport.getBoundingClientRect();
+      const left = Math.min(boxSelectState.startX, event.clientX);
+      const top = Math.min(boxSelectState.startY, event.clientY);
+      const right = Math.max(boxSelectState.startX, event.clientX);
+      const bottom = Math.max(boxSelectState.startY, event.clientY);
+      updateSelectionOverlay({ x: left - rect.left, y: top - rect.top, width: right - left, height: bottom - top });
+    });
+
+    const finishBoxSelection = (event) => {
+      if (!boxSelectState) return;
+      const svgEl = svgOutput.querySelector('svg');
+      const { startX, startY, additive } = boxSelectState;
+      boxSelectState = null;
+      updateSelectionOverlay(null);
+      if (!svgEl) return;
+
+      const left = Math.min(startX, event.clientX);
+      const top = Math.min(startY, event.clientY);
+      const right = Math.max(startX, event.clientX);
+      const bottom = Math.max(startY, event.clientY);
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      const hits = Array.from(nodes).filter((node) => {
+        if (!(node instanceof SVGElement)) return false;
+        const rect = node.getBoundingClientRect();
+        return !(rect.right < left || rect.left > right || rect.bottom < top || rect.top > bottom);
+      });
+
+      applyGroupSelection(hits, additive);
+      setStatus(
+        hits.length > 0
+          ? `Markerede ${hits.length} element(er) med markørramme.`
+          : 'Ingen elementer fanget af markørrammen.',
+      );
+    };
+
+    window.addEventListener('mouseup', finishBoxSelection);
+    window.addEventListener('mouseleave', finishBoxSelection);
 
     resetViewBtn.addEventListener('click', () => {
       resetViewport();
@@ -737,12 +872,89 @@
       };
     }
 
+    function rgbaToHex(r, g, b) {
+      const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+      return `#${[clamp(r), clamp(g), clamp(b)]
+        .map((v) => v.toString(16).padStart(2, '0'))
+        .join('')}`;
+    }
+
+    function samplePixel(imageData, x = 0, y = 0) {
+      if (!imageData) return null;
+      const { width, height, data } = imageData;
+      const cx = Math.min(width - 1, Math.max(0, Math.round(x)));
+      const cy = Math.min(height - 1, Math.max(0, Math.round(y)));
+      const idx = (cy * width + cx) * 4;
+      return {
+        hex: rgbaToHex(data[idx], data[idx + 1], data[idx + 2]),
+        alpha: data[idx + 3],
+      };
+    }
+
+    function detectBackgroundColor(imageData) {
+      if (!imageData) return null;
+      const samples = [
+        samplePixel(imageData, 0, 0),
+        samplePixel(imageData, imageData.width - 1, 0),
+        samplePixel(imageData, 0, imageData.height - 1),
+        samplePixel(imageData, imageData.width - 1, imageData.height - 1),
+      ].filter((s) => s && s.alpha > 0);
+
+      if (samples.length === 0) return '#000000';
+
+      const avg = samples.reduce(
+        (acc, s) => ({
+          r: acc.r + parseInt(s.hex.slice(1, 3), 16),
+          g: acc.g + parseInt(s.hex.slice(3, 5), 16),
+          b: acc.b + parseInt(s.hex.slice(5, 7), 16),
+        }),
+        { r: 0, g: 0, b: 0 },
+      );
+      const count = samples.length;
+      return rgbaToHex(avg.r / count, avg.g / count, avg.b / count);
+    }
+
+    function clampDimension(value, fallback) {
+      const num = Number(value);
+      if (!Number.isFinite(num) || num <= 0) return fallback;
+      return Math.max(1, Math.round(num));
+    }
+
+    function syncExportFromWidth(width) {
+      const safeWidth = clampDimension(width, originalDimensions.width || 1024);
+      if (lockAspect.checked && aspectRatio > 0) {
+        const nextHeight = Math.max(1, Math.round(safeWidth / aspectRatio));
+        exportHeight.value = String(nextHeight);
+      }
+      exportWidth.value = String(safeWidth);
+    }
+
+    function syncExportFromHeight(height) {
+      const safeHeight = clampDimension(height, originalDimensions.height || 1024);
+      if (lockAspect.checked && aspectRatio > 0) {
+        const nextWidth = Math.max(1, Math.round(safeHeight * aspectRatio));
+        exportWidth.value = String(nextWidth);
+      }
+      exportHeight.value = String(safeHeight);
+    }
+
+    function setExportDefaults(width, height) {
+      const safeW = clampDimension(width, 1024);
+      const safeH = clampDimension(height, 1024);
+      aspectRatio = safeH === 0 ? 1 : safeW / safeH;
+      originalDimensions = { width: safeW, height: safeH };
+      exportManualChange = false;
+      exportWidth.value = String(safeW);
+      exportHeight.value = String(safeH);
+    }
+
     async function loadImageFromFile(file, { silentStatus = false } = {}) {
       if (!ensurePNG(file) || !previewCtx) {
         throw new Error('Ugyldig PNG');
       }
 
       const signature = fileSignature(file);
+      currentFileBase = file.name ? file.name.replace(/\.[^.]+$/, '') : 'vectorized';
 
       return new Promise((resolve, reject) => {
         if (!silentStatus) {
@@ -766,6 +978,8 @@
             const width = Math.max(1, Math.round(img.width * scale));
             const height = Math.max(1, Math.round(img.height * scale));
 
+            setExportDefaults(img.width, img.height);
+
             previewCanvas.width = width;
             previewCanvas.height = height;
             previewCtx.clearRect(0, 0, width, height);
@@ -775,6 +989,10 @@
             cachedImageData = imageData;
             cachedImageSignature = signature;
             inputPaletteSize = computePaletteSize(imageData);
+            const bgGuess = detectBackgroundColor(imageData);
+            if (bgGuess) {
+              bgColorPicker.value = bgGuess;
+            }
             refreshColorBounds();
 
             if (inputPaletteSize) {
@@ -825,6 +1043,22 @@
       } catch (error) {
         console.error(error);
         return null;
+      }
+    }
+
+    function pickBackgroundFromEvent(event) {
+      if (!cachedImageData) {
+        setStatus('Upload og indlæs en PNG før du sampler baggrundsfarven.', true);
+        return;
+      }
+      const rect = previewCanvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const relX = ((event.clientX - rect.left) / rect.width) * cachedImageData.width;
+      const relY = ((event.clientY - rect.top) / rect.height) * cachedImageData.height;
+      const sample = samplePixel(cachedImageData, relX, relY);
+      if (sample) {
+        bgColorPicker.value = sample.hex;
+        setStatus(`Valgte baggrundsfarve ${sample.hex} fra PNG. Klik "Fjern baggrund" for at gøre den transparent.`);
       }
     }
 
@@ -894,6 +1128,16 @@
       updateEditControls();
     }
 
+    function syncColorPickerToSelection() {
+      const lastSelected = selectedElements[selectedElements.length - 1];
+      if (lastSelected) {
+        const fill = lastSelected.getAttribute('fill');
+        if (fill && fill !== 'none') {
+          colorPicker.value = toHex(fill) || colorPicker.value;
+        }
+      }
+    }
+
     function applySelection(target, additive) {
       if (!additive) clearSelection();
       if (selectedElements.includes(target)) {
@@ -905,15 +1149,37 @@
         target.style.outline = '1px solid #38bdf8';
         selectedElements.push(target);
       }
-
-      const lastSelected = selectedElements[selectedElements.length - 1];
-      if (lastSelected) {
-        const fill = lastSelected.getAttribute('fill');
-        if (fill && fill !== 'none') {
-          colorPicker.value = toHex(fill) || colorPicker.value;
-        }
-      }
+      syncColorPickerToSelection();
       updateEditControls();
+    }
+
+    function applyGroupSelection(targets, additive) {
+      if (!additive) {
+        clearSelection();
+      }
+      targets.forEach((target) => {
+        if (!selectedElements.includes(target)) {
+          target.style.outline = '1px solid #38bdf8';
+          selectedElements.push(target);
+        }
+      });
+      syncColorPickerToSelection();
+      updateEditControls();
+    }
+
+    function updateSelectionOverlay(box) {
+      if (!selectionOverlay) return;
+      if (!box) {
+        selectionOverlay.style.display = 'none';
+        selectionOverlay.style.width = '0px';
+        selectionOverlay.style.height = '0px';
+        return;
+      }
+      selectionOverlay.style.display = 'block';
+      selectionOverlay.style.left = `${box.x}px`;
+      selectionOverlay.style.top = `${box.y}px`;
+      selectionOverlay.style.width = `${box.width}px`;
+      selectionOverlay.style.height = `${box.height}px`;
     }
 
     function getTransformState(el) {
@@ -1006,6 +1272,19 @@
       makeColorTransparent(transparentPicker.value);
     });
 
+    sampleBgBtn.addEventListener('click', () => {
+      if (!cachedImageData) {
+        setStatus('Upload en PNG før du vælger baggrundsfarve.', true);
+        return;
+      }
+      backgroundPickMode = true;
+      setStatus('Klik i PNG-previewet for at vælge baggrundsfarven.');
+    });
+
+    applyBgRemovalBtn.addEventListener('click', () => {
+      removeBackgroundByColor(bgColorPicker.value);
+    });
+
     function syncGlow(value) {
       const clamped = Math.max(0, Math.min(50, Math.round(value)));
       glowRange.value = String(clamped);
@@ -1037,6 +1316,17 @@
       svgEl.classList.add('svg-canvas');
       svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       svgEl.style.background = 'transparent';
+
+      const viewBoxAttr = svgEl.getAttribute('viewBox');
+      if (viewBoxAttr) {
+        const parts = viewBoxAttr.split(/\s+/).map(Number);
+        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+          aspectRatio = parts[2] / parts[3];
+          if (!exportManualChange) {
+            setExportDefaults(parts[2], parts[3]);
+          }
+        }
+      }
 
       svgInner.replaceChildren(svgEl);
       applyViewport();
@@ -1160,6 +1450,47 @@
       }
     }
 
+    function removeBackgroundByColor(hexColor) {
+      const target = normalizeHex(hexColor);
+      if (!target) {
+        setStatus('Angiv en gyldig baggrundsfarve før du fjerner den.', true);
+        return;
+      }
+
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Ingen SVG at redigere endnu.', true);
+        return;
+      }
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      let changed = 0;
+      nodes.forEach((node) => {
+        if (!(node instanceof SVGElement)) return;
+        const fill = node.getAttribute('fill') || '';
+        const stroke = node.getAttribute('stroke') || '';
+        const normalizedFill = normalizeHex(fill);
+        const normalizedStroke = normalizeHex(stroke);
+        let nodeChanged = false;
+        if (normalizedFill && normalizedFill === target) {
+          node.setAttribute('fill', 'none');
+          nodeChanged = true;
+        }
+        if (normalizedStroke && normalizedStroke === target) {
+          node.setAttribute('stroke', 'none');
+          nodeChanged = true;
+        }
+        if (nodeChanged) changed += 1;
+      });
+
+      if (changed > 0) {
+        captureCurrentSVG();
+        setStatus(`Fjernede baggrundsfarven ${target} fra ${changed} element(er).`);
+      } else {
+        setStatus('Ingen elementer med den valgte baggrundsfarve blev fundet.', true);
+      }
+    }
+
     function ensureDefs(svgEl) {
       let defs = svgEl.querySelector('defs');
       if (!defs) {
@@ -1279,11 +1610,29 @@
 
     downloadBtn.addEventListener('click', () => {
       if (!lastSVG) return;
-      const blob = new Blob([lastSVG], { type: 'image/svg+xml' });
+      const width = clampDimension(exportWidth.value, originalDimensions.width || 1024);
+      let height = clampDimension(exportHeight.value, originalDimensions.height || 1024);
+      if (lockAspect.checked && aspectRatio > 0) {
+        height = Math.max(1, Math.round(width / aspectRatio));
+        exportHeight.value = String(height);
+      }
+
+      const parsed = new DOMParser().parseFromString(lastSVG, 'image/svg+xml');
+      const svgEl = parsed.querySelector('svg');
+      if (!svgEl) return;
+      if (!svgEl.getAttribute('viewBox')) {
+        svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      }
+      svgEl.setAttribute('width', `${width}px`);
+      svgEl.setAttribute('height', `${height}px`);
+
+      const serialized = new XMLSerializer().serializeToString(svgEl);
+      const blob = new Blob([serialized], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
+      const safeName = currentFileBase ? `${currentFileBase.replace(/\.svg$/i, '')}.svg` : 'vectorized.svg';
       a.href = url;
-      a.download = 'vectorized.svg';
+      a.download = safeName;
       a.click();
       URL.revokeObjectURL(url);
     });
