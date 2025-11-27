@@ -185,10 +185,14 @@
       background: #0b1224;
       overflow: hidden;
       position: relative;
+      cursor: default;
+    }
+
+    #previewViewport {
       cursor: grab;
     }
 
-    .viewport.dragging {
+    #previewViewport.dragging {
       cursor: grabbing;
     }
 
@@ -207,6 +211,18 @@
       max-width: 100%;
       max-height: 100%;
     }
+
+    #svgOutput {
+      overflow: hidden;
+    }
+
+    input[type="range"].warn-orange {
+      accent-color: #fb923c;
+    }
+
+    input[type="range"].warn-red {
+      accent-color: #f87171;
+    }
   </style>
   <script src="./vendor/imagetracer_v1.2.6.js"></script>
 </head>
@@ -221,6 +237,7 @@
       <div class="control">
         <label for="fileInput"><span>PNG-fil</span><span class="badge">Kræver PNG</span></label>
         <input id="fileInput" type="file" accept="image/png" />
+        <button id="uploadBtn" class="secondary" style="width:100%; margin-top:8px;">Upload</button>
         <div class="hint">Maks ~12 MB anbefales for hurtig konvertering.</div>
       </div>
       <div class="control">
@@ -240,6 +257,7 @@
           <input id="colorsNumber" type="number" min="0" max="512" step="1" value="64" style="flex:1;" />
           <span class="hint" style="margin:0;">Skriv eller brug pilene for ±1</span>
         </div>
+        <div id="colorsWarning" class="hint hidden" style="margin-top:6px;"></div>
         <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
           <input id="matchPalette" type="checkbox" />
           <span>Match inputfilens palet (kræver upload)</span>
@@ -293,7 +311,7 @@
             <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;"></canvas>
           </div>
         </div>
-        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse).</div>
+        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse). Zoom og panorér her (musehjul eller mellem/højreklik/Space+træk); udsnittet spejles automatisk til SVG-visningen.</div>
       </div>
       <div class="panel">
         <h2>SVG</h2>
@@ -312,6 +330,7 @@
             <li>"Geometrisk udjævning" justerer blur og simplificering før sporingen.</li>
             <li>Klik på et SVG-element for at vælge det. Brug farvevælgeren til at ændre fill, og træk for at flytte.</li>
             <li>Download-knappen aktiveres efter en succesfuld konvertering.</li>
+            <li>Zoom og panorér kun i PNG-previewet; udsnittet spejles automatisk til SVG-visningen.</li>
           </ul>
         </div>
       </div>
@@ -324,11 +343,13 @@
     const smoothRange = document.getElementById('smoothRange');
     const colorsRange = document.getElementById('colorsRange');
     const colorsNumber = document.getElementById('colorsNumber');
+    const colorsWarning = document.getElementById('colorsWarning');
     const gradientToggle = document.getElementById('gradientToggle');
     const matchPalette = document.getElementById('matchPalette');
     const detailValue = document.getElementById('detailValue');
     const smoothValue = document.getElementById('smoothValue');
     const colorsValue = document.getElementById('colorsValue');
+    const uploadBtn = document.getElementById('uploadBtn');
     const convertBtn = document.getElementById('convertBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
@@ -409,7 +430,28 @@
           : `${colorsRange.value} farver`;
     }
 
+    function paletteWarningState(value) {
+      const warnOrange = value > 128 && value <= 256;
+      const warnRed = value > 256;
+
+      colorsRange.classList.toggle('warn-orange', warnOrange && !warnRed);
+      colorsRange.classList.toggle('warn-red', warnRed);
+
+      let message = '';
+      if (warnRed) {
+        message = 'Stor palet (>256) kan give meget lang behandlingstid og potentielt nedbrud.';
+        colorsWarning.style.color = '#fca5a5';
+      } else if (warnOrange) {
+        message = 'Stor palet (>128) kan tage lang tid at spore.';
+        colorsWarning.style.color = '#fdba74';
+      }
+
+      colorsWarning.textContent = message;
+      colorsWarning.classList.toggle('hidden', !message);
+    }
+
     updateLabels();
+    paletteWarningState(Number(colorsRange.value));
 
     function currentColorMax() {
       if (matchPalette.checked && inputPaletteSize) {
@@ -429,6 +471,7 @@
       colorsRange.value = String(clamped);
       colorsNumber.value = String(clamped);
       updateLabels();
+      paletteWarningState(clamped);
     }
 
     function refreshColorBounds() {
@@ -451,6 +494,11 @@
     });
 
     refreshColorBounds();
+
+    uploadBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      fileInput.click();
+    });
 
     matchPalette.addEventListener('change', () => {
       if (matchPalette.checked) {
@@ -564,7 +612,6 @@
     });
 
     bindViewportInteractions(previewViewport);
-    bindViewportInteractions(svgViewport);
     applyViewport();
 
     resetViewBtn.addEventListener('click', () => {
@@ -774,8 +821,9 @@
         window.addEventListener('mousemove', (event) => {
           if (!dragOrigin || selectedElements.length === 0) return;
           event.preventDefault();
-          const dx = event.clientX - dragOrigin.clientX;
-          const dy = event.clientY - dragOrigin.clientY;
+          const scale = viewportState.scale || 1;
+          const dx = (event.clientX - dragOrigin.clientX) / scale;
+          const dy = (event.clientY - dragOrigin.clientY) / scale;
           const primary = selectedElements[0];
           const state = getTransformState(primary);
           const nx = dragOrigin.tx + dx;
