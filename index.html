@@ -77,6 +77,13 @@
       accent-color: var(--accent);
     }
 
+    input[type="color"].swatch {
+      width: 48px;
+      min-width: 48px;
+      height: 36px;
+      padding: 0;
+    }
+
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -287,22 +294,27 @@
       <button id="resetViewBtn" class="secondary">Nulstil visning</button>
       <span class="inline-flex">
         <label for="colorPicker" style="margin:0;">Redigér farve</label>
-        <input id="colorPicker" type="color" value="#00ffff" disabled />
+        <input id="colorPicker" class="swatch" type="color" value="#00ffff" disabled />
       </span>
       <span class="inline-flex">
         <label for="transparentPicker" style="margin:0;">Gør farve transparent</label>
-        <input id="transparentPicker" type="color" value="#000000" disabled />
+        <input id="transparentPicker" class="swatch" type="color" value="#000000" disabled />
         <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
       <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
         <label for="glowRange" style="margin:0;">Feather/outer glow (<span id="glowValue">0 px</span>)</label>
+        <select id="glowMode" style="min-width:170px;">
+          <option value="glow" selected>Kun feather/outer glow</option>
+          <option value="outline">Kun outline</option>
+          <option value="both">Outline + glow</option>
+        </select>
         <input id="glowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1;" />
         <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:90px;" />
-        <input id="glowColor" type="color" value="#00ffff" />
+        <input id="glowColor" class="swatch" type="color" value="#00ffff" />
       </span>
       <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
         <label for="bgColorPicker" style="margin:0;">Baggrund → transparent</label>
-        <input id="bgColorPicker" type="color" value="#000000" />
+        <input id="bgColorPicker" class="swatch" type="color" value="#000000" />
         <button id="sampleBgBtn" class="secondary" style="padding:8px 12px;">Vælg fra PNG</button>
         <button id="applyBgRemovalBtn" class="secondary" style="padding:8px 12px;">Fjern baggrund</button>
       </span>
@@ -316,7 +328,6 @@
           <span>Lås højde/bredde-forhold</span>
         </label>
       </span>
-      <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det.</span>
     </div>
 
     <div class="actions" style="flex-wrap:wrap;">
@@ -331,7 +342,7 @@
       <button id="alignTopBtn" class="secondary" disabled>Align top</button>
       <button id="alignMiddleBtn" class="secondary" disabled>Align midte</button>
       <button id="alignBottomBtn" class="secondary" disabled>Align bund</button>
-      <span class="badge">Marker flere elementer med Ctrl/⌘ eller Shift for alignment.</span>
+      <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det. Marker flere elementer med Ctrl/⌘ eller Shift for alignment.</span>
     </div>
 
     <div class="status" id="status"></div>
@@ -414,6 +425,7 @@
     const glowRange = document.getElementById('glowRange');
     const glowNumber = document.getElementById('glowNumber');
     const glowValue = document.getElementById('glowValue');
+    const glowMode = document.getElementById('glowMode');
     const glowColor = document.getElementById('glowColor');
     const bgColorPicker = document.getElementById('bgColorPicker');
     const sampleBgBtn = document.getElementById('sampleBgBtn');
@@ -1295,6 +1307,7 @@
 
     glowRange.addEventListener('input', () => syncGlow(Number(glowRange.value)));
     glowNumber.addEventListener('input', () => syncGlow(Number(glowNumber.value)));
+    glowMode.addEventListener('change', applyGlowToSVG);
     glowColor.addEventListener('input', applyGlowToSVG);
 
     function renderSVG(svgString) {
@@ -1506,12 +1519,15 @@
 
       const amount = Math.max(0, Math.min(50, Math.round(Number(glowRange.value))));
       const color = glowColor.value || '#00ffff';
+      const mode = glowMode.value || 'glow';
+      const includeGlow = mode === 'glow' || mode === 'both';
+      const includeOutline = mode === 'outline' || mode === 'both';
 
       glowRange.value = String(amount);
       glowNumber.value = String(amount);
       glowValue.textContent = `${amount} px`;
 
-      if (amount === 0) {
+      if (amount === 0 || (!includeGlow && !includeOutline)) {
         svgEl.style.filter = '';
         svgEl.removeAttribute('filter');
         captureCurrentSVG();
@@ -1530,23 +1546,52 @@
         filter.setAttribute('color-interpolation-filters', 'sRGB');
 
         const blur = document.createElementNS(SVG_NS, 'feGaussianBlur');
+        blur.id = 'glow-blur';
         blur.setAttribute('in', 'SourceAlpha');
         blur.setAttribute('result', 'blur');
         filter.appendChild(blur);
 
         const flood = document.createElementNS(SVG_NS, 'feFlood');
+        flood.id = 'glow-flood';
         flood.setAttribute('result', 'flood');
         filter.appendChild(flood);
 
         const composite = document.createElementNS(SVG_NS, 'feComposite');
+        composite.id = 'glow-composite';
         composite.setAttribute('in', 'flood');
         composite.setAttribute('in2', 'blur');
         composite.setAttribute('operator', 'in');
         composite.setAttribute('result', 'glow');
         filter.appendChild(composite);
 
+        const outlineMorph = document.createElementNS(SVG_NS, 'feMorphology');
+        outlineMorph.id = 'outline-morph';
+        outlineMorph.setAttribute('in', 'SourceAlpha');
+        outlineMorph.setAttribute('operator', 'dilate');
+        outlineMorph.setAttribute('radius', '1');
+        outlineMorph.setAttribute('result', 'outlineBase');
+        filter.appendChild(outlineMorph);
+
+        const outlineFlood = document.createElementNS(SVG_NS, 'feFlood');
+        outlineFlood.id = 'outline-flood';
+        outlineFlood.setAttribute('result', 'outlineFlood');
+        filter.appendChild(outlineFlood);
+
+        const outlineComposite = document.createElementNS(SVG_NS, 'feComposite');
+        outlineComposite.id = 'outline-composite';
+        outlineComposite.setAttribute('in', 'outlineFlood');
+        outlineComposite.setAttribute('in2', 'outlineBase');
+        outlineComposite.setAttribute('operator', 'in');
+        outlineComposite.setAttribute('result', 'outline');
+        filter.appendChild(outlineComposite);
+
         const merge = document.createElementNS(SVG_NS, 'feMerge');
+        const mergeOutline = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeOutline.id = 'merge-outline-node';
+        mergeOutline.setAttribute('in', 'outline');
+        merge.appendChild(mergeOutline);
         const mergeGlow = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeGlow.id = 'merge-glow-node';
         mergeGlow.setAttribute('in', 'glow');
         merge.appendChild(mergeGlow);
         const mergeSrc = document.createElementNS(SVG_NS, 'feMergeNode');
@@ -1557,14 +1602,23 @@
         defs.appendChild(filter);
       }
 
-      const blurNode = filter.querySelector('feGaussianBlur');
-      const floodNode = filter.querySelector('feFlood');
+      const blurNode = filter.querySelector('#glow-blur');
+      const floodNode = filter.querySelector('#glow-flood');
+      const morphNode = filter.querySelector('#outline-morph');
+      const outlineFlood = filter.querySelector('#outline-flood');
       if (blurNode) {
-        blurNode.setAttribute('stdDeviation', String(Math.max(0.1, amount / 2)));
+        blurNode.setAttribute('stdDeviation', includeGlow ? String(Math.max(0.1, amount / 2)) : '0');
       }
       if (floodNode) {
         floodNode.setAttribute('flood-color', color);
-        floodNode.setAttribute('flood-opacity', '1');
+        floodNode.setAttribute('flood-opacity', includeGlow ? '1' : '0');
+      }
+      if (morphNode) {
+        morphNode.setAttribute('radius', includeOutline ? String(Math.max(0.1, amount / 3)) : '0');
+      }
+      if (outlineFlood) {
+        outlineFlood.setAttribute('flood-color', color);
+        outlineFlood.setAttribute('flood-opacity', includeOutline ? '1' : '0');
       }
 
       svgEl.style.filter = `url(#${GLOW_FILTER_ID})`;
