@@ -204,12 +204,16 @@
       </div>
       <div class="control">
         <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">32 farver</span></label>
-        <input id="colorsRange" type="range" min="2" max="256" step="1" value="32" />
+        <input id="colorsRange" type="range" min="0" max="256" step="1" value="32" />
         <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
           <input id="matchPalette" type="checkbox" />
           <span>Match inputfilens palet (kræver upload)</span>
         </label>
-        <div class="hint">Større spænd (2-256 farver) giver mere kontrol over farvedetaljer.</div>
+        <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
+          <input id="gradientToggle" type="checkbox" />
+          <span>Bevar gradienter (øger farvebudget og sampling)</span>
+        </label>
+        <div class="hint">0 = auto (bruger hele paletten fra input). Efter upload justeres spændet fra 0 til input-palettens størrelse – også hvis den er >256.</div>
       </div>
     </div>
 
@@ -275,6 +279,7 @@
     const detailRange = document.getElementById('detailRange');
     const smoothRange = document.getElementById('smoothRange');
     const colorsRange = document.getElementById('colorsRange');
+    const gradientToggle = document.getElementById('gradientToggle');
     const matchPalette = document.getElementById('matchPalette');
     const detailValue = document.getElementById('detailValue');
     const smoothValue = document.getElementById('smoothValue');
@@ -332,7 +337,6 @@
         if (alpha === 0) continue;
         const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
         seen.add(key);
-        if (seen.size > 512) break; // stop counting excessively large palettes
       }
       return seen.size;
     }
@@ -340,10 +344,21 @@
     function updateLabels() {
       detailValue.textContent = detailRange.value;
       smoothValue.textContent = `${smoothRange.value}%`;
-      colorsValue.textContent = `${colorsRange.value} farver`;
+      colorsValue.textContent =
+        colorsRange.value === '0'
+          ? `Auto (0-${colorsRange.max} farver)`
+          : `${colorsRange.value} farver`;
     }
 
     updateLabels();
+
+    function clampColorsRange(max) {
+      colorsRange.max = `${max}`;
+      if (Number(colorsRange.value) > max) {
+        colorsRange.value = `${max}`;
+      }
+      updateLabels();
+    }
 
     [detailRange, smoothRange, colorsRange].forEach((el) => {
       el.addEventListener('input', () => {
@@ -361,7 +376,8 @@
         matchPalette.checked = false;
         return;
       }
-      const clamped = Math.min(256, Math.max(2, inputPaletteSize));
+      clampColorsRange(Math.max(inputPaletteSize, Number(colorsRange.max)));
+      const clamped = Math.max(0, inputPaletteSize);
       colorsRange.value = clamped.toString();
       updateLabels();
       setStatus(`Matchede paletstørrelse fra input (${clamped} farver).`);
@@ -417,6 +433,7 @@
       const detail = Number(detailRange.value); // 1-10
       const smooth = Number(smoothRange.value) / 100; // 0-1
       const colors = Number(colorsRange.value);
+      const gradientAware = gradientToggle.checked;
 
       // Tighter thresholds for more detaljer: ltres/qtres lower => more points
       const ltres = 2 - (detail - 1) * 0.18; // from ~2 to ~0.2
@@ -427,15 +444,19 @@
       const blurradius = smooth * 1.4; // 0 - 1.4
       const blurdelta = Math.max(0.05, 0.35 - smooth * 0.25);
 
+      const colorBudget = colors === 0 ? Math.max(1, inputPaletteSize || 64) : colors;
+
       return {
         ltres: Math.max(0.05, ltres),
         qtres: Math.max(0.02, qtres),
         pathomit,
         rightangleenhance: true,
         linefilter: true,
-        numberofcolors: colors,
-        mincolorratio: 0.02,
-        colorquantcycles: 4,
+        numberofcolors: colorBudget,
+        mincolorratio: gradientAware ? 0.002 : 0.02,
+        colorquantcycles: gradientAware ? 12 : 4,
+        colorsampling: gradientAware ? 2 : 1,
+        layering: gradientAware ? 1 : 0,
         blurradius,
         blurdelta,
         strokewidth: 0,
@@ -803,8 +824,12 @@
 
           const imageData = previewCtx.getImageData(0, 0, width, height);
           inputPaletteSize = computePaletteSize(imageData);
-          if (matchPalette.checked && inputPaletteSize) {
-            const clamped = Math.min(256, Math.max(2, inputPaletteSize));
+          if (inputPaletteSize) {
+            clampColorsRange(Math.max(Number(colorsRange.max), inputPaletteSize));
+            setStatus(`Opdagede ${inputPaletteSize} unikke farver i input. Spændet er sat til 0-${colorsRange.max}.`);
+          }
+          if (matchPalette.checked && inputPaletteSize !== null) {
+            const clamped = Math.max(0, inputPaletteSize);
             colorsRange.value = clamped.toString();
             updateLabels();
             setStatus(`Matchede paletstørrelse fra input (${clamped} farver).`);
