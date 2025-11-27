@@ -176,6 +176,37 @@
       min-height: 320px;
       display: block;
     }
+
+    .viewport {
+      width: 100%;
+      min-height: 320px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: #0b1224;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+    }
+
+    .viewport.dragging {
+      cursor: grabbing;
+    }
+
+    .viewport-inner {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform-origin: center center;
+      will-change: transform;
+    }
+
+    .viewport canvas,
+    .viewport svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
   </style>
   <script src="./vendor/imagetracer_v1.2.6.js"></script>
 </head>
@@ -203,8 +234,12 @@
         <div class="hint">Styrer blur og form-udglatning før sporingen.</div>
       </div>
       <div class="control">
-        <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">32 farver</span></label>
-        <input id="colorsRange" type="range" min="0" max="256" step="1" value="32" />
+        <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">64 farver</span></label>
+        <input id="colorsRange" type="range" min="0" max="512" step="1" value="64" />
+        <div class="inline-flex" style="gap:10px; align-items:center; margin-top:8px; width:100%;">
+          <input id="colorsNumber" type="number" min="0" max="512" step="1" value="64" style="flex:1;" />
+          <span class="hint" style="margin:0;">Skriv eller brug pilene for ±1</span>
+        </div>
         <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
           <input id="matchPalette" type="checkbox" />
           <span>Match inputfilens palet (kræver upload)</span>
@@ -213,13 +248,14 @@
           <input id="gradientToggle" type="checkbox" />
           <span>Bevar gradienter (øger farvebudget og sampling)</span>
         </label>
-        <div class="hint">0 = auto (bruger hele paletten fra input). Efter upload justeres spændet fra 0 til input-palettens størrelse – også hvis den er >256.</div>
+        <div class="hint">0 = auto (bruger hele paletten fra input). Med matchet palet kan du vælge 0 til inputfarverne (uanset størrelse); uden match kan du vælge 0-512.</div>
       </div>
     </div>
 
     <div class="actions">
       <button id="convertBtn">Konvertér til SVG</button>
       <button id="downloadBtn" class="secondary" disabled>Download SVG</button>
+      <button id="resetViewBtn" class="secondary">Nulstil visning</button>
       <span class="inline-flex">
         <label for="colorPicker" style="margin:0;">Redigér farve</label>
         <input id="colorPicker" type="color" value="#00ffff" disabled />
@@ -252,12 +288,20 @@
     <div class="panels">
       <div class="panel">
         <h2>Input preview</h2>
-        <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;border:1px dashed var(--border);background:#0b1224;"></canvas>
+        <div class="viewport" id="previewViewport">
+          <div class="viewport-inner" id="previewInner">
+            <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;"></canvas>
+          </div>
+        </div>
         <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse).</div>
       </div>
       <div class="panel">
         <h2>SVG</h2>
-        <div id="svgOutput" aria-live="polite"></div>
+        <div id="svgOutput" aria-live="polite">
+          <div class="viewport" id="svgViewport">
+            <div class="viewport-inner" id="svgInner"></div>
+          </div>
+        </div>
       </div>
       <div class="panel">
         <h2>Log & hjælp</h2>
@@ -279,6 +323,7 @@
     const detailRange = document.getElementById('detailRange');
     const smoothRange = document.getElementById('smoothRange');
     const colorsRange = document.getElementById('colorsRange');
+    const colorsNumber = document.getElementById('colorsNumber');
     const gradientToggle = document.getElementById('gradientToggle');
     const matchPalette = document.getElementById('matchPalette');
     const detailValue = document.getElementById('detailValue');
@@ -286,13 +331,18 @@
     const colorsValue = document.getElementById('colorsValue');
     const convertBtn = document.getElementById('convertBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const resetViewBtn = document.getElementById('resetViewBtn');
     const svgOutput = document.getElementById('svgOutput');
+    const svgInner = document.getElementById('svgInner');
+    const svgViewport = document.getElementById('svgViewport');
     const statusEl = document.getElementById('status');
     const colorPicker = document.getElementById('colorPicker');
     const transparentPicker = document.getElementById('transparentPicker');
     const makeTransparentBtn = document.getElementById('makeTransparentBtn');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
+    const previewInner = document.getElementById('previewInner');
+    const previewViewport = document.getElementById('previewViewport');
     const deleteBtn = document.getElementById('deleteBtn');
     const rotateLeftBtn = document.getElementById('rotateLeftBtn');
     const rotateRightBtn = document.getElementById('rotateRightBtn');
@@ -328,6 +378,14 @@
     }
 
     const MAX_BYTES = 12 * 1024 * 1024; // ~12MB
+    const DEFAULT_MAX_COLORS = 512;
+    const MIN_SCALE = 0.25;
+    const MAX_SCALE = 6;
+    const viewportState = { scale: 1, x: 0, y: 0 };
+    let isPanning = false;
+    let panOrigin = null;
+    let spaceHeld = false;
+    let viewportListenersBound = false;
 
     function computePaletteSize(imageData) {
       const { data } = imageData;
@@ -344,6 +402,7 @@
     function updateLabels() {
       detailValue.textContent = detailRange.value;
       smoothValue.textContent = `${smoothRange.value}%`;
+      colorsNumber.value = colorsRange.value;
       colorsValue.textContent =
         colorsRange.value === '0'
           ? `Auto (0-${colorsRange.max} farver)`
@@ -352,35 +411,62 @@
 
     updateLabels();
 
-    function clampColorsRange(max) {
-      colorsRange.max = `${max}`;
-      if (Number(colorsRange.value) > max) {
-        colorsRange.value = `${max}`;
+    function currentColorMax() {
+      if (matchPalette.checked && inputPaletteSize) {
+        return Math.max(0, inputPaletteSize);
       }
+      return DEFAULT_MAX_COLORS;
+    }
+
+    function clampColorValue(value, maxOverride) {
+      const max = Math.max(0, maxOverride ?? currentColorMax());
+      if (!Number.isFinite(value)) return 0;
+      return Math.min(Math.max(0, Math.round(value)), max);
+    }
+
+    function applyColorValue(value) {
+      const clamped = clampColorValue(value);
+      colorsRange.value = String(clamped);
+      colorsNumber.value = String(clamped);
       updateLabels();
     }
 
-    [detailRange, smoothRange, colorsRange].forEach((el) => {
-      el.addEventListener('input', () => {
-        updateLabels();
-        if (el === colorsRange) {
-          matchPalette.checked = false;
-        }
-      });
+    function refreshColorBounds() {
+      const max = currentColorMax();
+      colorsRange.max = String(max);
+      colorsNumber.max = String(max);
+      applyColorValue(Number(colorsRange.value));
+    }
+
+    [detailRange, smoothRange].forEach((el) => {
+      el.addEventListener('input', updateLabels);
     });
 
+    colorsRange.addEventListener('input', () => {
+      applyColorValue(Number(colorsRange.value));
+    });
+
+    colorsNumber.addEventListener('input', () => {
+      applyColorValue(Number(colorsNumber.value));
+    });
+
+    refreshColorBounds();
+
     matchPalette.addEventListener('change', () => {
-      if (!matchPalette.checked) return;
-      if (!inputPaletteSize) {
-        setStatus('Upload en PNG for at kunne matche dens palet.', true);
-        matchPalette.checked = false;
-        return;
+      if (matchPalette.checked) {
+        if (!inputPaletteSize) {
+          setStatus('Upload en PNG for at kunne matche dens palet.', true);
+          matchPalette.checked = false;
+          refreshColorBounds();
+          return;
+        }
+        refreshColorBounds();
+        applyColorValue(inputPaletteSize);
+        setStatus(`Matchede paletstørrelse fra input (${inputPaletteSize} farver).`);
+      } else {
+        refreshColorBounds();
+        setStatus('Paletmatch slået fra. Intervallet er 0-512 farver.');
       }
-      clampColorsRange(Math.max(inputPaletteSize, Number(colorsRange.max)));
-      const clamped = Math.max(0, inputPaletteSize);
-      colorsRange.value = clamped.toString();
-      updateLabels();
-      setStatus(`Matchede paletstørrelse fra input (${clamped} farver).`);
     });
 
     updateEditControls();
@@ -389,6 +475,102 @@
       statusEl.textContent = message;
       statusEl.style.color = isError ? '#fda4af' : 'var(--muted)';
     }
+
+    function applyViewport() {
+      const transform = `translate(${viewportState.x}px, ${viewportState.y}px) scale(${viewportState.scale})`;
+      [previewInner, svgInner].forEach((el) => {
+        if (el) {
+          el.style.transform = transform;
+        }
+      });
+    }
+
+    function resetViewport() {
+      viewportState.scale = 1;
+      viewportState.x = 0;
+      viewportState.y = 0;
+      applyViewport();
+    }
+
+    function zoomAt(container, clientX, clientY, factor) {
+      const rect = container.getBoundingClientRect();
+      const cx = clientX - (rect.left + rect.width / 2);
+      const cy = clientY - (rect.top + rect.height / 2);
+      const prevScale = viewportState.scale;
+      const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prevScale * factor));
+      const ratio = nextScale / prevScale;
+      viewportState.x = cx + (viewportState.x - cx) * ratio;
+      viewportState.y = cy + (viewportState.y - cy) * ratio;
+      viewportState.scale = nextScale;
+      applyViewport();
+    }
+
+    function bindViewportInteractions(container) {
+      if (!container) return;
+      container.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        zoomAt(container, event.clientX, event.clientY, factor);
+      }, { passive: false });
+
+      container.addEventListener('contextmenu', (event) => event.preventDefault());
+
+      container.addEventListener('mousedown', (event) => {
+        if (!(event.button === 1 || event.button === 2 || spaceHeld)) return;
+        event.preventDefault();
+        isPanning = true;
+        panOrigin = {
+          startX: event.clientX,
+          startY: event.clientY,
+          x: viewportState.x,
+          y: viewportState.y,
+        };
+        container.classList.add('dragging');
+      });
+
+      if (!viewportListenersBound) {
+        window.addEventListener('mousemove', (event) => {
+          if (!isPanning || !panOrigin) return;
+          const dx = event.clientX - panOrigin.startX;
+          const dy = event.clientY - panOrigin.startY;
+          viewportState.x = panOrigin.x + dx;
+          viewportState.y = panOrigin.y + dy;
+          applyViewport();
+        });
+
+        const stopPan = () => {
+          isPanning = false;
+          panOrigin = null;
+          previewViewport.classList.remove('dragging');
+          svgViewport.classList.remove('dragging');
+        };
+
+        window.addEventListener('mouseup', stopPan);
+        window.addEventListener('mouseleave', stopPan);
+        viewportListenersBound = true;
+      }
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        spaceHeld = true;
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') {
+        spaceHeld = false;
+      }
+    });
+
+    bindViewportInteractions(previewViewport);
+    bindViewportInteractions(svgViewport);
+    applyViewport();
+
+    resetViewBtn.addEventListener('click', () => {
+      resetViewport();
+      setStatus('Visning nulstillet for begge canvasser.');
+    });
 
     window.addEventListener('load', () => {
       tracerReady = tracerIsReady();
@@ -579,6 +761,7 @@
       });
 
       svgRoot.addEventListener('mousedown', (event) => {
+        if (spaceHeld) return;
         if (!(event.target instanceof SVGElement)) return;
         const primary = selectedElements[0];
         if (!primary || event.target !== primary) return;
@@ -660,7 +843,8 @@
       svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       svgEl.style.background = 'transparent';
 
-      svgOutput.replaceChildren(svgEl);
+      svgInner.replaceChildren(svgEl);
+      applyViewport();
       clearSelection();
       attachEditing(svgEl);
       captureCurrentSVG();
@@ -798,6 +982,9 @@
       if (!(await ensureTracer())) return;
 
       clearSelection();
+      resetViewport();
+      inputPaletteSize = null;
+      refreshColorBounds();
       downloadBtn.disabled = true;
       setStatus('Indlæser fil …');
       const reader = new FileReader();
@@ -824,15 +1011,15 @@
 
           const imageData = previewCtx.getImageData(0, 0, width, height);
           inputPaletteSize = computePaletteSize(imageData);
+          refreshColorBounds();
           if (inputPaletteSize) {
-            clampColorsRange(Math.max(Number(colorsRange.max), inputPaletteSize));
-            setStatus(`Opdagede ${inputPaletteSize} unikke farver i input. Spændet er sat til 0-${colorsRange.max}.`);
-          }
-          if (matchPalette.checked && inputPaletteSize !== null) {
-            const clamped = Math.max(0, inputPaletteSize);
-            colorsRange.value = clamped.toString();
-            updateLabels();
-            setStatus(`Matchede paletstørrelse fra input (${clamped} farver).`);
+            const baseMessage = `Opdagede ${inputPaletteSize} unikke farver i input.`;
+            if (matchPalette.checked) {
+              applyColorValue(inputPaletteSize);
+              setStatus(`${baseMessage} Spændet matcher nu input-paletten (0-${inputPaletteSize}).`);
+            } else {
+              setStatus(`${baseMessage} Spændet forbliver 0-512 med mindre du matcher paletten.`);
+            }
           }
           const options = mapOptions();
           setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
