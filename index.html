@@ -253,7 +253,16 @@
     const colorPicker = document.getElementById('colorPicker');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
-    const tracerReady = typeof ImageTracer !== 'undefined' && typeof ImageTracer.imagedataToSVG === 'function';
+
+    function tracerIsReady() {
+      return (
+        typeof ImageTracer === 'object' &&
+        ImageTracer !== null &&
+        typeof ImageTracer.imagedataToSVG === 'function'
+      );
+    }
+
+    let tracerReady = tracerIsReady();
 
     let lastSVG = '';
     let selectedElement = null;
@@ -277,6 +286,18 @@
       statusEl.textContent = message;
       statusEl.style.color = isError ? '#fda4af' : 'var(--muted)';
     }
+
+    window.addEventListener('load', () => {
+      tracerReady = tracerIsReady();
+      if (!tracerReady) {
+        setStatus(
+          'ImageTracer blev ikke indlæst. Sørg for at åbne index.html sammen med vendor-mappen, og genindlæs siden.',
+          true,
+        );
+      } else {
+        setStatus('ImageTracer klar. Upload en PNG for at starte.');
+      }
+    });
 
     function ensurePNG(file) {
       if (!file) {
@@ -325,8 +346,12 @@
     }
 
     function ensureTracer() {
+      tracerReady = tracerIsReady();
       if (tracerReady) return true;
-      setStatus('ImageTracer kunne ikke initialiseres. Prøv at genindlæse siden – biblioteket er bundlet lokalt.', true);
+      setStatus(
+        'ImageTracer kunne ikke initialiseres. Tjek at vendor/imagetracer_v1.2.6.js ligger ved siden af denne HTML og genindlæs siden.',
+        true,
+      );
       return false;
     }
 
