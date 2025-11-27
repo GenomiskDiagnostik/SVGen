@@ -204,8 +204,8 @@
       </div>
       <div class="control">
         <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">32 farver</span></label>
-        <input id="colorsRange" type="range" min="2" max="128" step="1" value="32" />
-        <div class="hint">Større spænd (2-128 farver) giver mere kontrol over farvedetaljer.</div>
+        <input id="colorsRange" type="range" min="2" max="256" step="1" value="32" />
+        <div class="hint">Større spænd (2-256 farver) giver mere kontrol over farvedetaljer.</div>
       </div>
     </div>
 
@@ -215,6 +215,11 @@
       <span class="inline-flex">
         <label for="colorPicker" style="margin:0;">Redigér farve</label>
         <input id="colorPicker" type="color" value="#00ffff" disabled />
+      </span>
+      <span class="inline-flex">
+        <label for="transparentPicker" style="margin:0;">Gør farve transparent</label>
+        <input id="transparentPicker" type="color" value="#000000" disabled />
+        <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
       <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det.</span>
     </div>
@@ -259,6 +264,8 @@
     const svgOutput = document.getElementById('svgOutput');
     const statusEl = document.getElementById('status');
     const colorPicker = document.getElementById('colorPicker');
+    const transparentPicker = document.getElementById('transparentPicker');
+    const makeTransparentBtn = document.getElementById('makeTransparentBtn');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
 
@@ -466,6 +473,10 @@
       captureCurrentSVG();
     });
 
+    makeTransparentBtn.addEventListener('click', () => {
+      makeColorTransparent(transparentPicker.value);
+    });
+
     function renderSVG(svgString) {
       const parsed = new DOMParser().parseFromString(svgString, 'image/svg+xml');
       const svgEl = parsed.querySelector('svg');
@@ -490,7 +501,50 @@
       attachEditing(svgEl);
       captureCurrentSVG();
       downloadBtn.disabled = false;
+      transparentPicker.disabled = false;
+      makeTransparentBtn.disabled = false;
       setStatus('SVG klar. Du kan nu finjustere og downloade.');
+    }
+
+    function normalizeHex(value) {
+      const hex = toHex(value);
+      return hex ? hex.toLowerCase() : null;
+    }
+
+    function makeColorTransparent(hexColor) {
+      const target = normalizeHex(hexColor);
+      if (!target) {
+        setStatus('Angiv en gyldig farve før du gør den transparent.', true);
+        return;
+      }
+
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Ingen SVG at redigere endnu.', true);
+        return;
+      }
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      let changed = 0;
+      nodes.forEach((node) => {
+        if (!(node instanceof SVGElement)) return;
+        const fill = node.getAttribute('fill') || '';
+        const normalized = normalizeHex(fill);
+        if (normalized && normalized === target) {
+          if (!node.hasAttribute('data-original-fill')) {
+            node.setAttribute('data-original-fill', fill);
+          }
+          node.setAttribute('fill', 'none');
+          changed += 1;
+        }
+      });
+
+      if (changed > 0) {
+        captureCurrentSVG();
+        setStatus(`Gjorde ${changed} element(er) transparente for ${target}.`);
+      } else {
+        setStatus('Ingen elementer med den valgte farve blev fundet.', true);
+      }
     }
 
     async function convertToSVG() {
