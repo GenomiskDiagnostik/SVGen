@@ -219,6 +219,11 @@
         <div id="svgOutput" aria-live="polite"></div>
       </div>
       <div class="panel">
+        <h2>Input preview</h2>
+        <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;border:1px dashed var(--border);background:#0b1224;"></canvas>
+        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse).</div>
+      </div>
+      <div class="panel">
         <h2>Log & hjælp</h2>
         <div class="hint">
           <ul>
@@ -246,6 +251,8 @@
     const svgOutput = document.getElementById('svgOutput');
     const statusEl = document.getElementById('status');
     const colorPicker = document.getElementById('colorPicker');
+    const previewCanvas = document.getElementById('previewCanvas');
+    const previewCtx = previewCanvas.getContext('2d');
 
     let lastSVG = '';
     let selectedElement = null;
@@ -387,21 +394,48 @@
 
     function convertToSVG() {
       const file = fileInput.files?.[0];
-      if (!ensurePNG(file)) return;
+      if (!ensurePNG(file) || !previewCtx) return;
+
       setStatus('Indlæser fil …');
       const reader = new FileReader();
+
       reader.onload = () => {
-        const dataUrl = reader.result;
-        const options = mapOptions();
-        setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
-        Imagetracer.imageToSVG(
-          dataUrl,
-          (svgString) => {
+        const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+        if (!dataUrl) {
+          setStatus('Kunne ikke læse filen.', true);
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          // Skaler til maks 1024px bredde for performance men bevarer aspektforhold
+          const maxDim = 1024;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const width = Math.max(1, Math.round(img.width * scale));
+          const height = Math.max(1, Math.round(img.height * scale));
+
+          previewCanvas.width = width;
+          previewCanvas.height = height;
+          previewCtx.clearRect(0, 0, width, height);
+          previewCtx.drawImage(img, 0, 0, width, height);
+
+          const imageData = previewCtx.getImageData(0, 0, width, height);
+          const options = mapOptions();
+          setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
+
+          try {
+            const svgString = ImageTracer.imagedataToSVG(imageData, options);
             renderSVG(svgString);
-          },
-          options
-        );
+          } catch (error) {
+            console.error(error);
+            setStatus('Vektorisering mislykkedes. Prøv med lavere detaljeringsgrad eller mindre billede.', true);
+          }
+        };
+
+        img.onerror = () => setStatus('Kunne ikke indlæse billedet. Kontroller at filen er en gyldig PNG.', true);
+        img.src = dataUrl;
       };
+
       reader.onerror = () => setStatus('Kunne ikke læse filen.', true);
       reader.readAsDataURL(file);
     }
