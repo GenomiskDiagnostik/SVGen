@@ -215,13 +215,13 @@
 
     <div class="panels">
       <div class="panel">
-        <h2>SVG</h2>
-        <div id="svgOutput" aria-live="polite"></div>
-      </div>
-      <div class="panel">
         <h2>Input preview</h2>
         <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;border:1px dashed var(--border);background:#0b1224;"></canvas>
         <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse).</div>
+      </div>
+      <div class="panel">
+        <h2>SVG</h2>
+        <div id="svgOutput" aria-live="polite"></div>
       </div>
       <div class="panel">
         <h2>Log & hjælp</h2>
@@ -253,6 +253,7 @@
     const colorPicker = document.getElementById('colorPicker');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
+    const tracerReady = typeof ImageTracer !== 'undefined' && typeof ImageTracer.imagedataToSVG === 'function';
 
     let lastSVG = '';
     let selectedElement = null;
@@ -321,6 +322,12 @@
         strokewidth: 0,
         scale: 1,
       };
+    }
+
+    function ensureTracer() {
+      if (tracerReady) return true;
+      setStatus('ImageTracer kunne ikke indlæses. Tjek din internetforbindelse og prøv igen.', true);
+      return false;
     }
 
     function attachEditing(svgRoot) {
@@ -395,6 +402,7 @@
     function convertToSVG() {
       const file = fileInput.files?.[0];
       if (!ensurePNG(file) || !previewCtx) return;
+      if (!ensureTracer()) return;
 
       setStatus('Indlæser fil …');
       const reader = new FileReader();
@@ -425,10 +433,14 @@
 
           try {
             const svgString = ImageTracer.imagedataToSVG(imageData, options);
+            if (!svgString || typeof svgString !== 'string') {
+              throw new Error('Tomt SVG-resultat');
+            }
             renderSVG(svgString);
           } catch (error) {
             console.error(error);
-            setStatus('Vektorisering mislykkedes. Prøv med lavere detaljeringsgrad eller mindre billede.', true);
+            const message = error instanceof Error ? error.message : 'ukendt fejl';
+            setStatus(`Vektorisering mislykkedes (${message}). Prøv med lavere detaljeringsgrad eller mindre billede.`, true);
           }
         };
 
