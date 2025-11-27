@@ -169,7 +169,7 @@
       display: none;
     }
   </style>
-  <script src="https://unpkg.com/imagetracerjs@1.2.6/imagetracer_v1.2.6.min.js"></script>
+  <script src="./vendor/imagetracer_v1.2.6.js"></script>
 </head>
 <body>
   <main class="card">
@@ -326,7 +326,7 @@
 
     function ensureTracer() {
       if (tracerReady) return true;
-      setStatus('ImageTracer kunne ikke indlæses. Tjek din internetforbindelse og prøv igen.', true);
+      setStatus('ImageTracer kunne ikke initialiseres. Prøv at genindlæse siden – biblioteket er bundlet lokalt.', true);
       return false;
     }
 
