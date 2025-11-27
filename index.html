@@ -291,9 +291,20 @@
       tracerReady = tracerIsReady();
       if (!tracerReady) {
         setStatus(
-          'ImageTracer blev ikke indlæst. Sørg for at åbne index.html sammen med vendor-mappen, og genindlæs siden.',
+          'ImageTracer blev ikke indlæst lokalt. Forsøger automatisk online fallback …',
           true,
         );
+        loadTracerFallback().then((ready) => {
+          tracerReady = ready;
+          if (ready) {
+            setStatus('ImageTracer indlæst via fallback. Upload en PNG for at starte.');
+          } else {
+            setStatus(
+              'ImageTracer kunne ikke indlæses. Sørg for at vendor/imagetracer_v1.2.6.js er tilgængelig eller tjek internetforbindelsen.',
+              true,
+            );
+          }
+        });
       } else {
         setStatus('ImageTracer klar. Upload en PNG for at starte.');
       }
@@ -345,11 +356,42 @@
       };
     }
 
-    function ensureTracer() {
+    function loadTracerFallback() {
+      return new Promise((resolve) => {
+        if (tracerIsReady()) {
+          resolve(true);
+          return;
+        }
+
+        const existing = document.getElementById('imagetracer-cdn');
+        if (existing) {
+          existing.addEventListener('load', () => resolve(tracerIsReady()));
+          existing.addEventListener('error', () => resolve(false));
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.id = 'imagetracer-cdn';
+        script.src = 'https://unpkg.com/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
+        script.crossOrigin = 'anonymous';
+        script.referrerPolicy = 'no-referrer';
+        script.onload = () => resolve(tracerIsReady());
+        script.onerror = () => resolve(false);
+        document.head.appendChild(script);
+      });
+    }
+
+    async function ensureTracer() {
       tracerReady = tracerIsReady();
       if (tracerReady) return true;
+
+      setStatus('Forsøger at hente ImageTracer online …');
+      const loaded = await loadTracerFallback();
+      tracerReady = loaded;
+      if (loaded) return true;
+
       setStatus(
-        'ImageTracer kunne ikke initialiseres. Tjek at vendor/imagetracer_v1.2.6.js ligger ved siden af denne HTML og genindlæs siden.',
+        'ImageTracer kunne ikke initialiseres. Tjek at vendor/imagetracer_v1.2.6.js ligger ved siden af denne HTML og at der er internetadgang til fallback.',
         true,
       );
       return false;
@@ -424,10 +466,10 @@
       setStatus('SVG klar. Du kan nu finjustere og downloade.');
     }
 
-    function convertToSVG() {
+    async function convertToSVG() {
       const file = fileInput.files?.[0];
       if (!ensurePNG(file) || !previewCtx) return;
-      if (!ensureTracer()) return;
+      if (!(await ensureTracer())) return;
 
       setStatus('Indlæser fil …');
       const reader = new FileReader();
