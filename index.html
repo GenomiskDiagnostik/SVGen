@@ -283,6 +283,12 @@
         <input id="transparentPicker" type="color" value="#000000" disabled />
         <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="glowRange" style="margin:0;">Feather/outer glow (<span id="glowValue">0 px</span>)</label>
+        <input id="glowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1;" />
+        <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:90px;" />
+        <input id="glowColor" type="color" value="#00ffff" />
+      </span>
       <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det.</span>
     </div>
 
@@ -311,7 +317,7 @@
             <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;"></canvas>
           </div>
         </div>
-        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse). Zoom og panorér her (musehjul eller mellem/højreklik/Space+træk); udsnittet spejles automatisk til SVG-visningen.</div>
+        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse). Zoom med musehjulet og panorér ved at holde venstre musetast nede – udsnittet spejles automatisk til SVG-visningen.</div>
       </div>
       <div class="panel">
         <h2>SVG</h2>
@@ -330,7 +336,7 @@
             <li>"Geometrisk udjævning" justerer blur og simplificering før sporingen.</li>
             <li>Klik på et SVG-element for at vælge det. Brug farvevælgeren til at ændre fill, og træk for at flytte.</li>
             <li>Download-knappen aktiveres efter en succesfuld konvertering.</li>
-            <li>Zoom og panorér kun i PNG-previewet; udsnittet spejles automatisk til SVG-visningen.</li>
+            <li>Zoom og panorér kun i PNG-previewet (venstreklik+træk for pan); udsnittet spejles automatisk til SVG-visningen.</li>
           </ul>
         </div>
       </div>
@@ -375,6 +381,10 @@
     const alignTopBtn = document.getElementById('alignTopBtn');
     const alignMiddleBtn = document.getElementById('alignMiddleBtn');
     const alignBottomBtn = document.getElementById('alignBottomBtn');
+    const glowRange = document.getElementById('glowRange');
+    const glowNumber = document.getElementById('glowNumber');
+    const glowValue = document.getElementById('glowValue');
+    const glowColor = document.getElementById('glowColor');
 
     function tracerIsReady() {
       return (
@@ -391,6 +401,8 @@
     let dragOrigin = null;
     let inputPaletteSize = null;
     let editingListenersBound = false;
+    let cachedImageData = null;
+    let cachedImageSignature = null;
 
     function captureCurrentSVG() {
       const svgEl = svgOutput.querySelector('svg');
@@ -402,6 +414,8 @@
     const DEFAULT_MAX_COLORS = 512;
     const MIN_SCALE = 0.25;
     const MAX_SCALE = 6;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const GLOW_FILTER_ID = 'outer-glow-filter';
     const viewportState = { scale: 1, x: 0, y: 0 };
     let isPanning = false;
     let panOrigin = null;
@@ -418,6 +432,10 @@
         seen.add(key);
       }
       return seen.size;
+    }
+
+    function fileSignature(file) {
+      return file ? `${file.name}-${file.size}-${file.lastModified}` : null;
     }
 
     function updateLabels() {
@@ -452,6 +470,14 @@
 
     updateLabels();
     paletteWarningState(Number(colorsRange.value));
+    syncGlow(Number(glowRange.value));
+
+    function clearCachedImage() {
+      cachedImageData = null;
+      cachedImageSignature = null;
+      inputPaletteSize = null;
+      refreshColorBounds();
+    }
 
     function currentColorMax() {
       if (matchPalette.checked && inputPaletteSize) {
@@ -495,9 +521,26 @@
 
     refreshColorBounds();
 
-    uploadBtn.addEventListener('click', (event) => {
+    uploadBtn.addEventListener('click', async (event) => {
       event.preventDefault();
-      fileInput.click();
+      const file = fileInput.files?.[0];
+      if (!file) {
+        fileInput.click();
+        return;
+      }
+      await loadImageFromFile(file).catch(() => {});
+    });
+
+    fileInput.addEventListener('change', () => {
+      clearCachedImage();
+      lastSVG = '';
+      svgInner.replaceChildren();
+      downloadBtn.disabled = true;
+      clearSelection();
+      updateEditControls();
+      if (fileInput.files?.[0]) {
+        setStatus('Fil valgt. Klik Upload for at indlæse previewet eller konvertér til SVG.');
+      }
     });
 
     matchPalette.addEventListener('change', () => {
@@ -564,7 +607,8 @@
       container.addEventListener('contextmenu', (event) => event.preventDefault());
 
       container.addEventListener('mousedown', (event) => {
-        if (!(event.button === 1 || event.button === 2 || spaceHeld)) return;
+        const isPrimary = event.button === 0;
+        if (!isPrimary) return;
         event.preventDefault();
         isPanning = true;
         panOrigin = {
@@ -691,6 +735,97 @@
         strokewidth: 0,
         scale: 1,
       };
+    }
+
+    async function loadImageFromFile(file, { silentStatus = false } = {}) {
+      if (!ensurePNG(file) || !previewCtx) {
+        throw new Error('Ugyldig PNG');
+      }
+
+      const signature = fileSignature(file);
+
+      return new Promise((resolve, reject) => {
+        if (!silentStatus) {
+          setStatus('Indlæser fil …');
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+          if (!dataUrl) {
+            setStatus('Kunne ikke læse filen.', true);
+            reject(new Error('Læsning fejlede'));
+            return;
+          }
+
+          const img = new Image();
+          img.onload = () => {
+            const maxDim = 1024;
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const width = Math.max(1, Math.round(img.width * scale));
+            const height = Math.max(1, Math.round(img.height * scale));
+
+            previewCanvas.width = width;
+            previewCanvas.height = height;
+            previewCtx.clearRect(0, 0, width, height);
+            previewCtx.drawImage(img, 0, 0, width, height);
+
+            const imageData = previewCtx.getImageData(0, 0, width, height);
+            cachedImageData = imageData;
+            cachedImageSignature = signature;
+            inputPaletteSize = computePaletteSize(imageData);
+            refreshColorBounds();
+
+            if (inputPaletteSize) {
+              const baseMessage = `Opdagede ${inputPaletteSize} unikke farver i input.`;
+              if (matchPalette.checked) {
+                applyColorValue(inputPaletteSize);
+                setStatus(`${baseMessage} Spændet matcher nu input-paletten (0-${inputPaletteSize}).`);
+              } else {
+                setStatus(`${baseMessage} Spændet forbliver 0-${colorsRange.max} med mindre du matcher paletten.`);
+              }
+            } else if (!silentStatus) {
+              setStatus('PNG indlæst. Klar til konvertering.');
+            }
+
+            resetViewport();
+            resolve(imageData);
+          };
+
+          img.onerror = () => {
+            setStatus('Kunne ikke indlæse billedet. Kontroller at filen er en gyldig PNG.', true);
+            reject(new Error('PNG load fejlede'));
+          };
+
+          img.src = dataUrl;
+        };
+
+        reader.onerror = () => {
+          setStatus('Kunne ikke læse filen.', true);
+          reject(new Error('Fil-læsning fejlede'));
+        };
+
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function ensureImageData() {
+      const file = fileInput.files?.[0];
+      if (!ensurePNG(file) || !previewCtx) return null;
+
+      const signature = fileSignature(file);
+      if (cachedImageData && cachedImageSignature === signature) {
+        return cachedImageData;
+      }
+
+      try {
+        const data = await loadImageFromFile(file);
+        return data;
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
     }
 
     function loadTracerFallback() {
@@ -871,6 +1006,18 @@
       makeColorTransparent(transparentPicker.value);
     });
 
+    function syncGlow(value) {
+      const clamped = Math.max(0, Math.min(50, Math.round(value)));
+      glowRange.value = String(clamped);
+      glowNumber.value = String(clamped);
+      glowValue.textContent = `${clamped} px`;
+      applyGlowToSVG();
+    }
+
+    glowRange.addEventListener('input', () => syncGlow(Number(glowRange.value)));
+    glowNumber.addEventListener('input', () => syncGlow(Number(glowNumber.value)));
+    glowColor.addEventListener('input', applyGlowToSVG);
+
     function renderSVG(svgString) {
       const parsed = new DOMParser().parseFromString(svgString, 'image/svg+xml');
       const svgEl = parsed.querySelector('svg');
@@ -895,6 +1042,7 @@
       applyViewport();
       clearSelection();
       attachEditing(svgEl);
+      syncGlow(Number(glowRange.value));
       captureCurrentSVG();
       downloadBtn.disabled = false;
       transparentPicker.disabled = false;
@@ -1012,6 +1160,86 @@
       }
     }
 
+    function ensureDefs(svgEl) {
+      let defs = svgEl.querySelector('defs');
+      if (!defs) {
+        defs = document.createElementNS(SVG_NS, 'defs');
+        svgEl.insertBefore(defs, svgEl.firstChild);
+      }
+      return defs;
+    }
+
+    function applyGlowToSVG() {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+
+      const amount = Math.max(0, Math.min(50, Math.round(Number(glowRange.value))));
+      const color = glowColor.value || '#00ffff';
+
+      glowRange.value = String(amount);
+      glowNumber.value = String(amount);
+      glowValue.textContent = `${amount} px`;
+
+      if (amount === 0) {
+        svgEl.style.filter = '';
+        svgEl.removeAttribute('filter');
+        captureCurrentSVG();
+        return;
+      }
+
+      const defs = ensureDefs(svgEl);
+      let filter = svgEl.querySelector(`#${GLOW_FILTER_ID}`);
+      if (!filter) {
+        filter = document.createElementNS(SVG_NS, 'filter');
+        filter.id = GLOW_FILTER_ID;
+        filter.setAttribute('x', '-50%');
+        filter.setAttribute('y', '-50%');
+        filter.setAttribute('width', '200%');
+        filter.setAttribute('height', '200%');
+        filter.setAttribute('color-interpolation-filters', 'sRGB');
+
+        const blur = document.createElementNS(SVG_NS, 'feGaussianBlur');
+        blur.setAttribute('in', 'SourceAlpha');
+        blur.setAttribute('result', 'blur');
+        filter.appendChild(blur);
+
+        const flood = document.createElementNS(SVG_NS, 'feFlood');
+        flood.setAttribute('result', 'flood');
+        filter.appendChild(flood);
+
+        const composite = document.createElementNS(SVG_NS, 'feComposite');
+        composite.setAttribute('in', 'flood');
+        composite.setAttribute('in2', 'blur');
+        composite.setAttribute('operator', 'in');
+        composite.setAttribute('result', 'glow');
+        filter.appendChild(composite);
+
+        const merge = document.createElementNS(SVG_NS, 'feMerge');
+        const mergeGlow = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeGlow.setAttribute('in', 'glow');
+        merge.appendChild(mergeGlow);
+        const mergeSrc = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeSrc.setAttribute('in', 'SourceGraphic');
+        merge.appendChild(mergeSrc);
+        filter.appendChild(merge);
+
+        defs.appendChild(filter);
+      }
+
+      const blurNode = filter.querySelector('feGaussianBlur');
+      const floodNode = filter.querySelector('feFlood');
+      if (blurNode) {
+        blurNode.setAttribute('stdDeviation', String(Math.max(0.1, amount / 2)));
+      }
+      if (floodNode) {
+        floodNode.setAttribute('flood-color', color);
+        floodNode.setAttribute('flood-opacity', '1');
+      }
+
+      svgEl.style.filter = `url(#${GLOW_FILTER_ID})`;
+      captureCurrentSVG();
+    }
+
     deleteBtn.addEventListener('click', deleteSelected);
     rotateLeftBtn.addEventListener('click', () => rotateSelected(-15));
     rotateRightBtn.addEventListener('click', () => rotateSelected(15));
@@ -1025,72 +1253,26 @@
     alignBottomBtn.addEventListener('click', () => alignSelected('bottom'));
 
     async function convertToSVG() {
-      const file = fileInput.files?.[0];
-      if (!ensurePNG(file) || !previewCtx) return;
+      const imageData = await ensureImageData();
+      if (!imageData) return;
       if (!(await ensureTracer())) return;
 
       clearSelection();
-      resetViewport();
-      inputPaletteSize = null;
-      refreshColorBounds();
       downloadBtn.disabled = true;
-      setStatus('Indlæser fil …');
-      const reader = new FileReader();
+      const options = mapOptions();
+      setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
 
-      reader.onload = () => {
-        const dataUrl = typeof reader.result === 'string' ? reader.result : '';
-        if (!dataUrl) {
-          setStatus('Kunne ikke læse filen.', true);
-          return;
+      try {
+        const svgString = ImageTracer.imagedataToSVG(imageData, options);
+        if (!svgString || typeof svgString !== 'string') {
+          throw new Error('Tomt SVG-resultat');
         }
-
-        const img = new Image();
-        img.onload = () => {
-          // Skaler til maks 1024px bredde for performance men bevarer aspektforhold
-          const maxDim = 1024;
-          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-          const width = Math.max(1, Math.round(img.width * scale));
-          const height = Math.max(1, Math.round(img.height * scale));
-
-          previewCanvas.width = width;
-          previewCanvas.height = height;
-          previewCtx.clearRect(0, 0, width, height);
-          previewCtx.drawImage(img, 0, 0, width, height);
-
-          const imageData = previewCtx.getImageData(0, 0, width, height);
-          inputPaletteSize = computePaletteSize(imageData);
-          refreshColorBounds();
-          if (inputPaletteSize) {
-            const baseMessage = `Opdagede ${inputPaletteSize} unikke farver i input.`;
-            if (matchPalette.checked) {
-              applyColorValue(inputPaletteSize);
-              setStatus(`${baseMessage} Spændet matcher nu input-paletten (0-${inputPaletteSize}).`);
-            } else {
-              setStatus(`${baseMessage} Spændet forbliver 0-512 med mindre du matcher paletten.`);
-            }
-          }
-          const options = mapOptions();
-          setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
-
-          try {
-            const svgString = ImageTracer.imagedataToSVG(imageData, options);
-            if (!svgString || typeof svgString !== 'string') {
-              throw new Error('Tomt SVG-resultat');
-            }
-            renderSVG(svgString);
-          } catch (error) {
-            console.error(error);
-            const message = error instanceof Error ? error.message : 'ukendt fejl';
-            setStatus(`Vektorisering mislykkedes (${message}). Prøv med lavere detaljeringsgrad eller mindre billede.`, true);
-          }
-        };
-
-        img.onerror = () => setStatus('Kunne ikke indlæse billedet. Kontroller at filen er en gyldig PNG.', true);
-        img.src = dataUrl;
-      };
-
-      reader.onerror = () => setStatus('Kunne ikke læse filen.', true);
-      reader.readAsDataURL(file);
+        renderSVG(svgString);
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error ? error.message : 'ukendt fejl';
+        setStatus(`Vektorisering mislykkedes (${message}). Prøv med lavere detaljeringsgrad eller mindre billede.`, true);
+      }
     }
 
     convertBtn.addEventListener('click', convertToSVG);
