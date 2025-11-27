@@ -142,6 +142,7 @@
       border: 1px dashed var(--border);
       background: #0b1224;
       overflow: auto;
+      position: relative;
     }
 
     .hint {
@@ -167,6 +168,13 @@
 
     .hidden {
       display: none;
+    }
+
+    .svg-canvas {
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+      display: block;
     }
   </style>
   <script src="./vendor/imagetracer_v1.2.6.js"></script>
@@ -195,9 +203,9 @@
         <div class="hint">Styrer blur og form-udglatning før sporingen.</div>
       </div>
       <div class="control">
-        <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">16 farver</span></label>
-        <input id="colorsRange" type="range" min="4" max="32" step="1" value="16" />
-        <div class="hint">Flere farver = højere nøjagtighed men større SVG.</div>
+        <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">32 farver</span></label>
+        <input id="colorsRange" type="range" min="2" max="128" step="1" value="32" />
+        <div class="hint">Større spænd (2-128 farver) giver mere kontrol over farvedetaljer.</div>
       </div>
     </div>
 
@@ -267,6 +275,12 @@
     let lastSVG = '';
     let selectedElement = null;
     let dragOrigin = null;
+
+    function captureCurrentSVG() {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+      lastSVG = new XMLSerializer().serializeToString(svgEl);
+    }
 
     const MAX_BYTES = 12 * 1024 * 1024; // ~12MB
 
@@ -435,6 +449,7 @@
 
       window.addEventListener('mouseup', () => {
         dragOrigin = null;
+        captureCurrentSVG();
       });
     }
 
@@ -448,20 +463,32 @@
     colorPicker.addEventListener('input', () => {
       if (!selectedElement) return;
       selectedElement.setAttribute('fill', colorPicker.value);
+      captureCurrentSVG();
     });
 
     function renderSVG(svgString) {
-      svgOutput.innerHTML = svgString;
-      const svgEl = svgOutput.querySelector('svg');
+      const parsed = new DOMParser().parseFromString(svgString, 'image/svg+xml');
+      const svgEl = parsed.querySelector('svg');
       if (!svgEl) {
         setStatus('Kunne ikke læse SVG-resultatet.', true);
         return;
       }
-      svgEl.setAttribute('width', '100%');
-      svgEl.setAttribute('height', '100%');
+
+      const widthAttr = parseFloat(svgEl.getAttribute('width') || '0');
+      const heightAttr = parseFloat(svgEl.getAttribute('height') || '0');
+      if (!svgEl.getAttribute('viewBox') && widthAttr > 0 && heightAttr > 0) {
+        svgEl.setAttribute('viewBox', `0 0 ${widthAttr} ${heightAttr}`);
+      }
+
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.classList.add('svg-canvas');
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       svgEl.style.background = 'transparent';
+
+      svgOutput.replaceChildren(svgEl);
       attachEditing(svgEl);
-      lastSVG = new XMLSerializer().serializeToString(svgEl);
+      captureCurrentSVG();
       downloadBtn.disabled = false;
       setStatus('SVG klar. Du kan nu finjustere og downloade.');
     }
