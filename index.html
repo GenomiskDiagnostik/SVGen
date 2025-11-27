@@ -322,14 +322,27 @@
       </span>
       <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
         <label for="glowRange" style="margin:0;">Feather/outer glow (<span id="glowValue">0 px</span>)</label>
-        <select id="glowMode" style="min-width:170px;">
-          <option value="glow" selected>Kun feather/outer glow</option>
-          <option value="outline">Kun outline</option>
-          <option value="both">Outline + glow</option>
-        </select>
-        <input id="glowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1;" />
-        <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:90px;" />
+        <input id="glowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
+        <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
         <input id="glowColor" class="swatch" type="color" value="#00ffff" />
+      </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="outlineRange" style="margin:0;">Outline (<span id="outlineValue">0 px</span>)</label>
+        <input id="outlineRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
+        <input id="outlineNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
+        <input id="outlineColor" class="swatch" type="color" value="#00ffff" />
+      </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="innerGlowRange" style="margin:0;">Inner glow (<span id="innerGlowValue">0 px</span>)</label>
+        <input id="innerGlowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
+        <input id="innerGlowNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
+        <input id="innerGlowColor" class="swatch" type="color" value="#ffffff" />
+      </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="innerFillColor" style="margin:0;">Inner fill (<span id="innerFillOpacityValue">0%</span>)</label>
+        <input id="innerFillColor" class="swatch" type="color" value="#ffffff" />
+        <input id="innerFillOpacityRange" type="range" min="0" max="100" step="1" value="0" style="flex:1; min-width:140px;" />
+        <input id="innerFillOpacityNumber" type="number" min="0" max="100" step="1" value="0" style="width:72px;" />
       </span>
       <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
         <label for="bgColorPicker" style="margin:0;">Baggrund → transparent</label>
@@ -444,8 +457,19 @@
     const glowRange = document.getElementById('glowRange');
     const glowNumber = document.getElementById('glowNumber');
     const glowValue = document.getElementById('glowValue');
-    const glowMode = document.getElementById('glowMode');
     const glowColor = document.getElementById('glowColor');
+    const outlineRange = document.getElementById('outlineRange');
+    const outlineNumber = document.getElementById('outlineNumber');
+    const outlineValue = document.getElementById('outlineValue');
+    const outlineColor = document.getElementById('outlineColor');
+    const innerGlowRange = document.getElementById('innerGlowRange');
+    const innerGlowNumber = document.getElementById('innerGlowNumber');
+    const innerGlowValue = document.getElementById('innerGlowValue');
+    const innerGlowColor = document.getElementById('innerGlowColor');
+    const innerFillColor = document.getElementById('innerFillColor');
+    const innerFillOpacityRange = document.getElementById('innerFillOpacityRange');
+    const innerFillOpacityNumber = document.getElementById('innerFillOpacityNumber');
+    const innerFillOpacityValue = document.getElementById('innerFillOpacityValue');
     const bgColorPicker = document.getElementById('bgColorPicker');
     const sampleBgBtn = document.getElementById('sampleBgBtn');
     const applyBgRemovalBtn = document.getElementById('applyBgRemovalBtn');
@@ -1316,18 +1340,57 @@
       removeBackgroundByColor(bgColorPicker.value);
     });
 
+    function syncNumeric(value, rangeEl, numberEl, valueEl, suffix, max) {
+      const clamped = Math.max(0, Math.min(max, Math.round(value)));
+      rangeEl.value = String(clamped);
+      numberEl.value = String(clamped);
+      if (valueEl) {
+        valueEl.textContent = `${clamped}${suffix}`;
+      }
+      return clamped;
+    }
+
     function syncGlow(value) {
-      const clamped = Math.max(0, Math.min(50, Math.round(value)));
-      glowRange.value = String(clamped);
-      glowNumber.value = String(clamped);
-      glowValue.textContent = `${clamped} px`;
+      syncNumeric(value, glowRange, glowNumber, glowValue, ' px', 50);
+      applyGlowToSVG();
+    }
+
+    function syncOutline(value) {
+      syncNumeric(value, outlineRange, outlineNumber, outlineValue, ' px', 50);
+      applyGlowToSVG();
+    }
+
+    function syncInnerGlow(value) {
+      syncNumeric(value, innerGlowRange, innerGlowNumber, innerGlowValue, ' px', 50);
+      applyGlowToSVG();
+    }
+
+    function syncInnerFillOpacity(value) {
+      syncNumeric(value, innerFillOpacityRange, innerFillOpacityNumber, innerFillOpacityValue, '%', 100);
       applyGlowToSVG();
     }
 
     glowRange.addEventListener('input', () => syncGlow(Number(glowRange.value)));
     glowNumber.addEventListener('input', () => syncGlow(Number(glowNumber.value)));
-    glowMode.addEventListener('change', applyGlowToSVG);
     glowColor.addEventListener('input', applyGlowToSVG);
+    outlineRange.addEventListener('input', () => syncOutline(Number(outlineRange.value)));
+    outlineNumber.addEventListener('input', () => syncOutline(Number(outlineNumber.value)));
+    outlineColor.addEventListener('input', applyGlowToSVG);
+    innerGlowRange.addEventListener('input', () => syncInnerGlow(Number(innerGlowRange.value)));
+    innerGlowNumber.addEventListener('input', () => syncInnerGlow(Number(innerGlowNumber.value)));
+    innerGlowColor.addEventListener('input', applyGlowToSVG);
+    innerFillColor.addEventListener('input', applyGlowToSVG);
+    innerFillOpacityRange.addEventListener('input', () =>
+      syncInnerFillOpacity(Number(innerFillOpacityRange.value)),
+    );
+    innerFillOpacityNumber.addEventListener('input', () =>
+      syncInnerFillOpacity(Number(innerFillOpacityNumber.value)),
+    );
+
+    syncGlow(Number(glowRange.value));
+    syncOutline(Number(outlineRange.value));
+    syncInnerGlow(Number(innerGlowRange.value));
+    syncInnerFillOpacity(Number(innerFillOpacityRange.value));
 
     function renderSVG(svgString) {
       const parsed = new DOMParser().parseFromString(svgString, 'image/svg+xml');
@@ -1365,6 +1428,9 @@
       clearSelection();
       attachEditing(svgEl);
       syncGlow(Number(glowRange.value));
+      syncOutline(Number(outlineRange.value));
+      syncInnerGlow(Number(innerGlowRange.value));
+      syncInnerFillOpacity(Number(innerFillOpacityRange.value));
       captureCurrentSVG();
       downloadBtn.disabled = false;
       transparentPicker.disabled = false;
@@ -1536,17 +1602,42 @@
       const svgEl = svgOutput.querySelector('svg');
       if (!svgEl) return;
 
-      const amount = Math.max(0, Math.min(50, Math.round(Number(glowRange.value))));
-      const color = glowColor.value || '#00ffff';
-      const mode = glowMode.value || 'glow';
-      const includeGlow = mode === 'glow' || mode === 'both';
-      const includeOutline = mode === 'outline' || mode === 'both';
+      const outerAmount = syncNumeric(Number(glowRange.value), glowRange, glowNumber, glowValue, ' px', 50);
+      const outlineAmount = syncNumeric(
+        Number(outlineRange.value),
+        outlineRange,
+        outlineNumber,
+        outlineValue,
+        ' px',
+        50,
+      );
+      const innerGlowAmount = syncNumeric(
+        Number(innerGlowRange.value),
+        innerGlowRange,
+        innerGlowNumber,
+        innerGlowValue,
+        ' px',
+        50,
+      );
+      const innerFillPercent = syncNumeric(
+        Number(innerFillOpacityRange.value),
+        innerFillOpacityRange,
+        innerFillOpacityNumber,
+        innerFillOpacityValue,
+        '%',
+        100,
+      );
+      const outerColor = glowColor.value || '#00ffff';
+      const outlineColorValue = outlineColor.value || outerColor;
+      const innerGlowColorValue = innerGlowColor.value || '#ffffff';
+      const innerFillColorValue = innerFillColor.value || '#ffffff';
 
-      glowRange.value = String(amount);
-      glowNumber.value = String(amount);
-      glowValue.textContent = `${amount} px`;
+      const includeGlow = outerAmount > 0;
+      const includeOutline = outlineAmount > 0;
+      const includeInnerGlow = innerGlowAmount > 0;
+      const includeInnerFill = innerFillPercent > 0;
 
-      if (amount === 0 || (!includeGlow && !includeOutline)) {
+      if (!includeGlow && !includeOutline && !includeInnerGlow && !includeInnerFill) {
         svgEl.style.filter = '';
         svgEl.removeAttribute('filter');
         captureCurrentSVG();
@@ -1604,6 +1695,46 @@
         outlineComposite.setAttribute('result', 'outline');
         filter.appendChild(outlineComposite);
 
+        const innerGlowBlur = document.createElementNS(SVG_NS, 'feGaussianBlur');
+        innerGlowBlur.id = 'inner-glow-blur';
+        innerGlowBlur.setAttribute('in', 'SourceAlpha');
+        innerGlowBlur.setAttribute('result', 'innerGlowBlur');
+        filter.appendChild(innerGlowBlur);
+
+        const innerGlowComposite = document.createElementNS(SVG_NS, 'feComposite');
+        innerGlowComposite.id = 'inner-glow-composite';
+        innerGlowComposite.setAttribute('in', 'innerGlowBlur');
+        innerGlowComposite.setAttribute('in2', 'SourceAlpha');
+        innerGlowComposite.setAttribute('operator', 'in');
+        innerGlowComposite.setAttribute('result', 'innerGlowMask');
+        filter.appendChild(innerGlowComposite);
+
+        const innerGlowFlood = document.createElementNS(SVG_NS, 'feFlood');
+        innerGlowFlood.id = 'inner-glow-flood';
+        innerGlowFlood.setAttribute('result', 'innerGlowFlood');
+        filter.appendChild(innerGlowFlood);
+
+        const innerGlowFinal = document.createElementNS(SVG_NS, 'feComposite');
+        innerGlowFinal.id = 'inner-glow-final';
+        innerGlowFinal.setAttribute('in', 'innerGlowFlood');
+        innerGlowFinal.setAttribute('in2', 'innerGlowMask');
+        innerGlowFinal.setAttribute('operator', 'in');
+        innerGlowFinal.setAttribute('result', 'innerGlow');
+        filter.appendChild(innerGlowFinal);
+
+        const innerFillFlood = document.createElementNS(SVG_NS, 'feFlood');
+        innerFillFlood.id = 'inner-fill-flood';
+        innerFillFlood.setAttribute('result', 'innerFillFlood');
+        filter.appendChild(innerFillFlood);
+
+        const innerFillComposite = document.createElementNS(SVG_NS, 'feComposite');
+        innerFillComposite.id = 'inner-fill-composite';
+        innerFillComposite.setAttribute('in', 'innerFillFlood');
+        innerFillComposite.setAttribute('in2', 'SourceAlpha');
+        innerFillComposite.setAttribute('operator', 'in');
+        innerFillComposite.setAttribute('result', 'innerFill');
+        filter.appendChild(innerFillComposite);
+
         const merge = document.createElementNS(SVG_NS, 'feMerge');
         const mergeOutline = document.createElementNS(SVG_NS, 'feMergeNode');
         mergeOutline.id = 'merge-outline-node';
@@ -1613,9 +1744,18 @@
         mergeGlow.id = 'merge-glow-node';
         mergeGlow.setAttribute('in', 'glow');
         merge.appendChild(mergeGlow);
-        const mergeSrc = document.createElementNS(SVG_NS, 'feMergeNode');
-        mergeSrc.setAttribute('in', 'SourceGraphic');
-        merge.appendChild(mergeSrc);
+        const mergeSource = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeSource.id = 'merge-source-node';
+        mergeSource.setAttribute('in', 'SourceGraphic');
+        merge.appendChild(mergeSource);
+        const mergeInnerFill = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeInnerFill.id = 'merge-inner-fill-node';
+        mergeInnerFill.setAttribute('in', 'innerFill');
+        merge.appendChild(mergeInnerFill);
+        const mergeInnerGlow = document.createElementNS(SVG_NS, 'feMergeNode');
+        mergeInnerGlow.id = 'merge-inner-glow-node';
+        mergeInnerGlow.setAttribute('in', 'innerGlow');
+        merge.appendChild(mergeInnerGlow);
         filter.appendChild(merge);
 
         defs.appendChild(filter);
@@ -1625,19 +1765,33 @@
       const floodNode = filter.querySelector('#glow-flood');
       const morphNode = filter.querySelector('#outline-morph');
       const outlineFlood = filter.querySelector('#outline-flood');
+      const innerGlowBlur = filter.querySelector('#inner-glow-blur');
+      const innerGlowFlood = filter.querySelector('#inner-glow-flood');
+      const innerFillFlood = filter.querySelector('#inner-fill-flood');
       if (blurNode) {
-        blurNode.setAttribute('stdDeviation', includeGlow ? String(Math.max(0.1, amount / 2)) : '0');
+        blurNode.setAttribute('stdDeviation', includeGlow ? String(Math.max(0.1, outerAmount / 2)) : '0');
       }
       if (floodNode) {
-        floodNode.setAttribute('flood-color', color);
+        floodNode.setAttribute('flood-color', outerColor);
         floodNode.setAttribute('flood-opacity', includeGlow ? '1' : '0');
       }
       if (morphNode) {
-        morphNode.setAttribute('radius', includeOutline ? String(Math.max(0.1, amount / 3)) : '0');
+        morphNode.setAttribute('radius', includeOutline ? String(Math.max(0.1, outlineAmount / 3)) : '0');
       }
       if (outlineFlood) {
-        outlineFlood.setAttribute('flood-color', color);
+        outlineFlood.setAttribute('flood-color', outlineColorValue);
         outlineFlood.setAttribute('flood-opacity', includeOutline ? '1' : '0');
+      }
+      if (innerGlowBlur) {
+        innerGlowBlur.setAttribute('stdDeviation', includeInnerGlow ? String(Math.max(0.1, innerGlowAmount / 2)) : '0');
+      }
+      if (innerGlowFlood) {
+        innerGlowFlood.setAttribute('flood-color', innerGlowColorValue);
+        innerGlowFlood.setAttribute('flood-opacity', includeInnerGlow ? '1' : '0');
+      }
+      if (innerFillFlood) {
+        innerFillFlood.setAttribute('flood-color', innerFillColorValue);
+        innerFillFlood.setAttribute('flood-opacity', includeInnerFill ? String(innerFillPercent / 100) : '0');
       }
 
       svgEl.style.filter = `url(#${GLOW_FILTER_ID})`;
