@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PNG til SVG vektoriseringsværktøj</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #38bdf8;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --border: #334155;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+
+    .card {
+      width: min(1100px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    p.description {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .control {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="range"],
+    input[type="file"],
+    input[type="color"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 12px 0 18px;
+    }
+
+    button {
+      background: linear-gradient(135deg, #38bdf8, #06b6d4);
+      border: none;
+      color: #0b1224;
+      font-weight: 700;
+      border-radius: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      box-shadow: 0 10px 30px rgba(56, 189, 248, 0.3);
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      box-shadow: none;
+      border: 1px solid var(--border);
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .status {
+      margin: 6px 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+      min-height: 20px;
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .panel {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 360px;
+      position: relative;
+    }
+
+    .panel h2 {
+      margin-top: 0;
+      font-size: 16px;
+      color: var(--muted);
+    }
+
+    #svgOutput {
+      width: 100%;
+      min-height: 320px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: #0b1224;
+      overflow: auto;
+      position: relative;
+    }
+
+    .hint {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .inline-flex {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-size: 12px;
+      color: #a5f3fc;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .svg-canvas {
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+      display: block;
+    }
+
+    .viewport {
+      width: 100%;
+      min-height: 320px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: #0b1224;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+    }
+
+    .viewport.dragging {
+      cursor: grabbing;
+    }
+
+    .viewport-inner {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform-origin: center center;
+      will-change: transform;
+    }
+
+    .viewport canvas,
+    .viewport svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+  <script src="./vendor/imagetracer_v1.2.6.js"></script>
+</head>
+<body>
+  <main class="card">
+    <h1>PNG → SVG (detaljeret vektoriseringsværktøj)</h1>
+    <p class="description">
+      Upload en PNG og generér en redigerbar, detaljeret SVG. Justér detaljeringsgrad og geometrisk udjævning før konvertering – og finjustér farver/placeringer bagefter. Alt kører lokalt i browseren.
+    </p>
+
+    <div class="controls">
+      <div class="control">
+        <label for="fileInput"><span>PNG-fil</span><span class="badge">Kræver PNG</span></label>
+        <input id="fileInput" type="file" accept="image/png" />
+        <div class="hint">Maks ~12 MB anbefales for hurtig konvertering.</div>
+      </div>
+      <div class="control">
+        <label for="detailRange"><span>Detaljeringsgrad</span><span id="detailValue">7</span></label>
+        <input id="detailRange" type="range" min="1" max="10" step="1" value="7" />
+        <div class="hint">Højere = flere små kurver (ltres/qtres), lavere = simplere.</div>
+      </div>
+      <div class="control">
+        <label for="smoothRange"><span>Geometrisk udjævning</span><span id="smoothValue">40%</span></label>
+        <input id="smoothRange" type="range" min="0" max="100" step="5" value="40" />
+        <div class="hint">Styrer blur og form-udglatning før sporingen.</div>
+      </div>
+      <div class="control">
+        <label for="colorsRange"><span>Farvepalet</span><span id="colorsValue">64 farver</span></label>
+        <input id="colorsRange" type="range" min="0" max="512" step="1" value="64" />
+        <div class="inline-flex" style="gap:10px; align-items:center; margin-top:8px; width:100%;">
+          <input id="colorsNumber" type="number" min="0" max="512" step="1" value="64" style="flex:1;" />
+          <span class="hint" style="margin:0;">Skriv eller brug pilene for ±1</span>
+        </div>
+        <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
+          <input id="matchPalette" type="checkbox" />
+          <span>Match inputfilens palet (kræver upload)</span>
+        </label>
+        <label style="margin-top:6px; gap:10px; align-items:center; display:flex;">
+          <input id="gradientToggle" type="checkbox" />
+          <span>Bevar gradienter (øger farvebudget og sampling)</span>
+        </label>
+        <div class="hint">0 = auto (bruger hele paletten fra input). Med matchet palet kan du vælge 0 til inputfarverne (uanset størrelse); uden match kan du vælge 0-512.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="convertBtn">Konvertér til SVG</button>
+      <button id="downloadBtn" class="secondary" disabled>Download SVG</button>
+      <button id="resetViewBtn" class="secondary">Nulstil visning</button>
+      <span class="inline-flex">
+        <label for="colorPicker" style="margin:0;">Redigér farve</label>
+        <input id="colorPicker" type="color" value="#00ffff" disabled />
+      </span>
+      <span class="inline-flex">
+        <label for="transparentPicker" style="margin:0;">Gør farve transparent</label>
+        <input id="transparentPicker" type="color" value="#000000" disabled />
+        <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
+      </span>
+      <span class="badge">Tip: Klik et SVG-objekt for at markere og trække i det.</span>
+    </div>
+
+    <div class="actions" style="flex-wrap:wrap;">
+      <button id="deleteBtn" class="secondary" disabled>Slet valgte</button>
+      <button id="rotateLeftBtn" class="secondary" disabled>Rotér -15°</button>
+      <button id="rotateRightBtn" class="secondary" disabled>Rotér +15°</button>
+      <button id="flipHBtn" class="secondary" disabled>Spejlvend horisontalt</button>
+      <button id="flipVBtn" class="secondary" disabled>Spejlvend vertikalt</button>
+      <button id="alignLeftBtn" class="secondary" disabled>Align venstre</button>
+      <button id="alignCenterBtn" class="secondary" disabled>Align center</button>
+      <button id="alignRightBtn" class="secondary" disabled>Align højre</button>
+      <button id="alignTopBtn" class="secondary" disabled>Align top</button>
+      <button id="alignMiddleBtn" class="secondary" disabled>Align midte</button>
+      <button id="alignBottomBtn" class="secondary" disabled>Align bund</button>
+      <span class="badge">Marker flere elementer med Ctrl/⌘ eller Shift for alignment.</span>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="panels">
+      <div class="panel">
+        <h2>Input preview</h2>
+        <div class="viewport" id="previewViewport">
+          <div class="viewport-inner" id="previewInner">
+            <canvas id="previewCanvas" width="10" height="10" style="width:100%;height:auto;"></canvas>
+          </div>
+        </div>
+        <div class="hint">Forvisning af PNG'en der spores (skaleres automatisk til canvas-størrelse).</div>
+      </div>
+      <div class="panel">
+        <h2>SVG</h2>
+        <div id="svgOutput" aria-live="polite">
+          <div class="viewport" id="svgViewport">
+            <div class="viewport-inner" id="svgInner"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Log & hjælp</h2>
+        <div class="hint">
+          <ul>
+            <li>Kontrollér at filen er PNG. Andre formater afvises for at undgå fejl.</li>
+            <li>Brug "Detaljeringsgrad" til at balancere præcision vs. filstørrelse.</li>
+            <li>"Geometrisk udjævning" justerer blur og simplificering før sporingen.</li>
+            <li>Klik på et SVG-element for at vælge det. Brug farvevælgeren til at ændre fill, og træk for at flytte.</li>
+            <li>Download-knappen aktiveres efter en succesfuld konvertering.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const detailRange = document.getElementById('detailRange');
+    const smoothRange = document.getElementById('smoothRange');
+    const colorsRange = document.getElementById('colorsRange');
+    const colorsNumber = document.getElementById('colorsNumber');
+    const gradientToggle = document.getElementById('gradientToggle');
+    const matchPalette = document.getElementById('matchPalette');
+    const detailValue = document.getElementById('detailValue');
+    const smoothValue = document.getElementById('smoothValue');
+    const colorsValue = document.getElementById('colorsValue');
+    const convertBtn = document.getElementById('convertBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const resetViewBtn = document.getElementById('resetViewBtn');
+    const svgOutput = document.getElementById('svgOutput');
+    const svgInner = document.getElementById('svgInner');
+    const svgViewport = document.getElementById('svgViewport');
+    const statusEl = document.getElementById('status');
+    const colorPicker = document.getElementById('colorPicker');
+    const transparentPicker = document.getElementById('transparentPicker');
+    const makeTransparentBtn = document.getElementById('makeTransparentBtn');
+    const previewCanvas = document.getElementById('previewCanvas');
+    const previewCtx = previewCanvas.getContext('2d');
+    const previewInner = document.getElementById('previewInner');
+    const previewViewport = document.getElementById('previewViewport');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const rotateLeftBtn = document.getElementById('rotateLeftBtn');
+    const rotateRightBtn = document.getElementById('rotateRightBtn');
+    const flipHBtn = document.getElementById('flipHBtn');
+    const flipVBtn = document.getElementById('flipVBtn');
+    const alignLeftBtn = document.getElementById('alignLeftBtn');
+    const alignCenterBtn = document.getElementById('alignCenterBtn');
+    const alignRightBtn = document.getElementById('alignRightBtn');
+    const alignTopBtn = document.getElementById('alignTopBtn');
+    const alignMiddleBtn = document.getElementById('alignMiddleBtn');
+    const alignBottomBtn = document.getElementById('alignBottomBtn');
+
+    function tracerIsReady() {
+      return (
+        typeof ImageTracer === 'object' &&
+        ImageTracer !== null &&
+        typeof ImageTracer.imagedataToSVG === 'function'
+      );
+    }
+
+    let tracerReady = tracerIsReady();
+
+    let lastSVG = '';
+    let selectedElements = [];
+    let dragOrigin = null;
+    let inputPaletteSize = null;
+    let editingListenersBound = false;
+
+    function captureCurrentSVG() {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+      lastSVG = new XMLSerializer().serializeToString(svgEl);
+    }
+
+    const MAX_BYTES = 12 * 1024 * 1024; // ~12MB
+    const DEFAULT_MAX_COLORS = 512;
+    const MIN_SCALE = 0.25;
+    const MAX_SCALE = 6;
+    const viewportState = { scale: 1, x: 0, y: 0 };
+    let isPanning = false;
+    let panOrigin = null;
+    let spaceHeld = false;
+    let viewportListenersBound = false;
+
+    function computePaletteSize(imageData) {
+      const { data } = imageData;
+      const seen = new Set();
+      for (let i = 0; i < data.length; i += 4) {
+        const alpha = data[i + 3];
+        if (alpha === 0) continue;
+        const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+        seen.add(key);
+      }
+      return seen.size;
+    }
+
+    function updateLabels() {
+      detailValue.textContent = detailRange.value;
+      smoothValue.textContent = `${smoothRange.value}%`;
+      colorsNumber.value = colorsRange.value;
+      colorsValue.textContent =
+        colorsRange.value === '0'
+          ? `Auto (0-${colorsRange.max} farver)`
+          : `${colorsRange.value} farver`;
+    }
+
+    updateLabels();
+
+    function currentColorMax() {
+      if (matchPalette.checked && inputPaletteSize) {
+        return Math.max(0, inputPaletteSize);
+      }
+      return DEFAULT_MAX_COLORS;
+    }
+
+    function clampColorValue(value, maxOverride) {
+      const max = Math.max(0, maxOverride ?? currentColorMax());
+      if (!Number.isFinite(value)) return 0;
+      return Math.min(Math.max(0, Math.round(value)), max);
+    }
+
+    function applyColorValue(value) {
+      const clamped = clampColorValue(value);
+      colorsRange.value = String(clamped);
+      colorsNumber.value = String(clamped);
+      updateLabels();
+    }
+
+    function refreshColorBounds() {
+      const max = currentColorMax();
+      colorsRange.max = String(max);
+      colorsNumber.max = String(max);
+      applyColorValue(Number(colorsRange.value));
+    }
+
+    [detailRange, smoothRange].forEach((el) => {
+      el.addEventListener('input', updateLabels);
+    });
+
+    colorsRange.addEventListener('input', () => {
+      applyColorValue(Number(colorsRange.value));
+    });
+
+    colorsNumber.addEventListener('input', () => {
+      applyColorValue(Number(colorsNumber.value));
+    });
+
+    refreshColorBounds();
+
+    matchPalette.addEventListener('change', () => {
+      if (matchPalette.checked) {
+        if (!inputPaletteSize) {
+          setStatus('Upload en PNG for at kunne matche dens palet.', true);
+          matchPalette.checked = false;
+          refreshColorBounds();
+          return;
+        }
+        refreshColorBounds();
+        applyColorValue(inputPaletteSize);
+        setStatus(`Matchede paletstørrelse fra input (${inputPaletteSize} farver).`);
+      } else {
+        refreshColorBounds();
+        setStatus('Paletmatch slået fra. Intervallet er 0-512 farver.');
+      }
+    });
+
+    updateEditControls();
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.style.color = isError ? '#fda4af' : 'var(--muted)';
+    }
+
+    function applyViewport() {
+      const transform = `translate(${viewportState.x}px, ${viewportState.y}px) scale(${viewportState.scale})`;
+      [previewInner, svgInner].forEach((el) => {
+        if (el) {
+          el.style.transform = transform;
+        }
+      });
+    }
+
+    function resetViewport() {
+      viewportState.scale = 1;
+      viewportState.x = 0;
+      viewportState.y = 0;
+      applyViewport();
+    }
+
+    function zoomAt(container, clientX, clientY, factor) {
+      const rect = container.getBoundingClientRect();
+      const cx = clientX - (rect.left + rect.width / 2);
+      const cy = clientY - (rect.top + rect.height / 2);
+      const prevScale = viewportState.scale;
+      const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prevScale * factor));
+      const ratio = nextScale / prevScale;
+      viewportState.x = cx + (viewportState.x - cx) * ratio;
+      viewportState.y = cy + (viewportState.y - cy) * ratio;
+      viewportState.scale = nextScale;
+      applyViewport();
+    }
+
+    function bindViewportInteractions(container) {
+      if (!container) return;
+      container.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        zoomAt(container, event.clientX, event.clientY, factor);
+      }, { passive: false });
+
+      container.addEventListener('contextmenu', (event) => event.preventDefault());
+
+      container.addEventListener('mousedown', (event) => {
+        if (!(event.button === 1 || event.button === 2 || spaceHeld)) return;
+        event.preventDefault();
+        isPanning = true;
+        panOrigin = {
+          startX: event.clientX,
+          startY: event.clientY,
+          x: viewportState.x,
+          y: viewportState.y,
+        };
+        container.classList.add('dragging');
+      });
+
+      if (!viewportListenersBound) {
+        window.addEventListener('mousemove', (event) => {
+          if (!isPanning || !panOrigin) return;
+          const dx = event.clientX - panOrigin.startX;
+          const dy = event.clientY - panOrigin.startY;
+          viewportState.x = panOrigin.x + dx;
+          viewportState.y = panOrigin.y + dy;
+          applyViewport();
+        });
+
+        const stopPan = () => {
+          isPanning = false;
+          panOrigin = null;
+          previewViewport.classList.remove('dragging');
+          svgViewport.classList.remove('dragging');
+        };
+
+        window.addEventListener('mouseup', stopPan);
+        window.addEventListener('mouseleave', stopPan);
+        viewportListenersBound = true;
+      }
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        spaceHeld = true;
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') {
+        spaceHeld = false;
+      }
+    });
+
+    bindViewportInteractions(previewViewport);
+    bindViewportInteractions(svgViewport);
+    applyViewport();
+
+    resetViewBtn.addEventListener('click', () => {
+      resetViewport();
+      setStatus('Visning nulstillet for begge canvasser.');
+    });
+
+    window.addEventListener('load', () => {
+      tracerReady = tracerIsReady();
+      if (!tracerReady) {
+        setStatus(
+          'ImageTracer blev ikke indlæst lokalt. Forsøger automatisk online fallback …',
+          true,
+        );
+        loadTracerFallback().then((ready) => {
+          tracerReady = ready;
+          if (ready) {
+            setStatus('ImageTracer indlæst via fallback. Upload en PNG for at starte.');
+          } else {
+            setStatus(
+              'ImageTracer kunne ikke indlæses. Sørg for at vendor/imagetracer_v1.2.6.js er tilgængelig eller tjek internetforbindelsen.',
+              true,
+            );
+          }
+        });
+      } else {
+        setStatus('ImageTracer klar. Upload en PNG for at starte.');
+      }
+    });
+
+    function ensurePNG(file) {
+      if (!file) {
+        setStatus('Vælg venligst en PNG-fil.');
+        return false;
+      }
+      if (file.type !== 'image/png') {
+        setStatus('Kun PNG-filer understøttes for at sikre korrekt vektorisering.', true);
+        return false;
+      }
+      if (file.size > MAX_BYTES) {
+        setStatus('Filen er stor. Prøv en mindre PNG (<12 MB) for hurtigere resultat.', true);
+        return false;
+      }
+      return true;
+    }
+
+    function mapOptions() {
+      const detail = Number(detailRange.value); // 1-10
+      const smooth = Number(smoothRange.value) / 100; // 0-1
+      const colors = Number(colorsRange.value);
+      const gradientAware = gradientToggle.checked;
+
+      // Tighter thresholds for more detaljer: ltres/qtres lower => more points
+      const ltres = 2 - (detail - 1) * 0.18; // from ~2 to ~0.2
+      const qtres = 2 - (detail - 1) * 0.19; // from ~2 to ~0.1
+      const pathomit = Math.max(0, 25 - detail * 2.2); // drop tiny paths when low detail
+
+      // Geometric smoothing toggles a light blur before tracing
+      const blurradius = smooth * 1.4; // 0 - 1.4
+      const blurdelta = Math.max(0.05, 0.35 - smooth * 0.25);
+
+      const colorBudget = colors === 0 ? Math.max(1, inputPaletteSize || 64) : colors;
+
+      return {
+        ltres: Math.max(0.05, ltres),
+        qtres: Math.max(0.02, qtres),
+        pathomit,
+        rightangleenhance: true,
+        linefilter: true,
+        numberofcolors: colorBudget,
+        mincolorratio: gradientAware ? 0.002 : 0.02,
+        colorquantcycles: gradientAware ? 12 : 4,
+        colorsampling: gradientAware ? 2 : 1,
+        layering: gradientAware ? 1 : 0,
+        blurradius,
+        blurdelta,
+        strokewidth: 0,
+        scale: 1,
+      };
+    }
+
+    function loadTracerFallback() {
+      return new Promise((resolve) => {
+        if (tracerIsReady()) {
+          resolve(true);
+          return;
+        }
+
+        const existing = document.getElementById('imagetracer-cdn');
+        if (existing) {
+          existing.addEventListener('load', () => resolve(tracerIsReady()));
+          existing.addEventListener('error', () => resolve(false));
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.id = 'imagetracer-cdn';
+        script.src = 'https://unpkg.com/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
+        script.crossOrigin = 'anonymous';
+        script.referrerPolicy = 'no-referrer';
+        script.onload = () => resolve(tracerIsReady());
+        script.onerror = () => resolve(false);
+        document.head.appendChild(script);
+      });
+    }
+
+    async function ensureTracer() {
+      tracerReady = tracerIsReady();
+      if (tracerReady) return true;
+
+      setStatus('Forsøger at hente ImageTracer online …');
+      const loaded = await loadTracerFallback();
+      tracerReady = loaded;
+      if (loaded) return true;
+
+      setStatus(
+        'ImageTracer kunne ikke initialiseres. Tjek at vendor/imagetracer_v1.2.6.js ligger ved siden af denne HTML og at der er internetadgang til fallback.',
+        true,
+      );
+      return false;
+    }
+
+    function updateEditControls() {
+      const hasSelection = selectedElements.length > 0;
+      const multiSelect = selectedElements.length > 1;
+
+      [deleteBtn, rotateLeftBtn, rotateRightBtn, flipHBtn, flipVBtn].forEach((btn) => {
+        btn.disabled = !hasSelection;
+      });
+
+      [alignLeftBtn, alignCenterBtn, alignRightBtn, alignTopBtn, alignMiddleBtn, alignBottomBtn].forEach((btn) => {
+        btn.disabled = !multiSelect;
+      });
+
+      colorPicker.disabled = !hasSelection;
+      transparentPicker.disabled = !svgOutput.querySelector('svg');
+      makeTransparentBtn.disabled = !svgOutput.querySelector('svg');
+    }
+
+    function clearSelection() {
+      selectedElements.forEach((el) => {
+        el.style.outline = '';
+      });
+      selectedElements = [];
+      updateEditControls();
+    }
+
+    function applySelection(target, additive) {
+      if (!additive) clearSelection();
+      if (selectedElements.includes(target)) {
+        if (additive) {
+          target.style.outline = '';
+          selectedElements = selectedElements.filter((el) => el !== target);
+        }
+      } else {
+        target.style.outline = '1px solid #38bdf8';
+        selectedElements.push(target);
+      }
+
+      const lastSelected = selectedElements[selectedElements.length - 1];
+      if (lastSelected) {
+        const fill = lastSelected.getAttribute('fill');
+        if (fill && fill !== 'none') {
+          colorPicker.value = toHex(fill) || colorPicker.value;
+        }
+      }
+      updateEditControls();
+    }
+
+    function getTransformState(el) {
+      const tx = Number(el.dataset.tx || '0');
+      const ty = Number(el.dataset.ty || '0');
+      const rot = Number(el.dataset.rot || '0');
+      const sx = Number(el.dataset.sx || '1');
+      const sy = Number(el.dataset.sy || '1');
+      return { tx, ty, rot, sx, sy };
+    }
+
+    function setTransformState(el, state) {
+      const { tx, ty, rot, sx, sy } = state;
+      el.dataset.tx = tx;
+      el.dataset.ty = ty;
+      el.dataset.rot = rot;
+      el.dataset.sx = sx;
+      el.dataset.sy = sy;
+      el.setAttribute('transform', `translate(${tx} ${ty}) rotate(${rot}) scale(${sx} ${sy})`);
+    }
+
+    function attachEditing(svgRoot) {
+      svgRoot.addEventListener('click', (event) => {
+        if (!(event.target instanceof SVGElement)) return;
+        const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+        applySelection(event.target, additive);
+      });
+
+      svgRoot.addEventListener('mousedown', (event) => {
+        if (spaceHeld) return;
+        if (!(event.target instanceof SVGElement)) return;
+        const primary = selectedElements[0];
+        if (!primary || event.target !== primary) return;
+        const { clientX, clientY } = event;
+        const { tx, ty } = getTransformState(primary);
+        dragOrigin = { clientX, clientY, tx, ty };
+      });
+
+      if (!editingListenersBound) {
+        window.addEventListener('mousemove', (event) => {
+          if (!dragOrigin || selectedElements.length === 0) return;
+          event.preventDefault();
+          const dx = event.clientX - dragOrigin.clientX;
+          const dy = event.clientY - dragOrigin.clientY;
+          const primary = selectedElements[0];
+          const state = getTransformState(primary);
+          const nx = dragOrigin.tx + dx;
+          const ny = dragOrigin.ty + dy;
+          const newState = { ...state, tx: nx, ty: ny };
+          setTransformState(primary, newState);
+        });
+
+        window.addEventListener('mouseup', () => {
+          if (!dragOrigin) return;
+          dragOrigin = null;
+          captureCurrentSVG();
+        });
+
+        window.addEventListener('keydown', (event) => {
+          if (event.key === 'Delete' || event.key === 'Backspace') {
+            if (selectedElements.length > 0) {
+              event.preventDefault();
+              deleteSelected();
+            }
+          }
+        });
+
+        editingListenersBound = true;
+      }
+    }
+
+    function toHex(color) {
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (!ctx) return null;
+      ctx.fillStyle = color;
+      return ctx.fillStyle.match(/^#[0-9a-fA-F]{6}$/) ? ctx.fillStyle : null;
+    }
+
+    colorPicker.addEventListener('input', () => {
+      if (selectedElements.length === 0) return;
+      selectedElements.forEach((el) => {
+        el.setAttribute('fill', colorPicker.value);
+      });
+      captureCurrentSVG();
+      setStatus('Opdaterede farve på markerede elementer.');
+    });
+
+    makeTransparentBtn.addEventListener('click', () => {
+      makeColorTransparent(transparentPicker.value);
+    });
+
+    function renderSVG(svgString) {
+      const parsed = new DOMParser().parseFromString(svgString, 'image/svg+xml');
+      const svgEl = parsed.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Kunne ikke læse SVG-resultatet.', true);
+        return;
+      }
+
+      const widthAttr = parseFloat(svgEl.getAttribute('width') || '0');
+      const heightAttr = parseFloat(svgEl.getAttribute('height') || '0');
+      if (!svgEl.getAttribute('viewBox') && widthAttr > 0 && heightAttr > 0) {
+        svgEl.setAttribute('viewBox', `0 0 ${widthAttr} ${heightAttr}`);
+      }
+
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.classList.add('svg-canvas');
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      svgEl.style.background = 'transparent';
+
+      svgInner.replaceChildren(svgEl);
+      applyViewport();
+      clearSelection();
+      attachEditing(svgEl);
+      captureCurrentSVG();
+      downloadBtn.disabled = false;
+      transparentPicker.disabled = false;
+      makeTransparentBtn.disabled = false;
+      updateEditControls();
+      setStatus('SVG klar. Du kan nu finjustere og downloade uden at køre konvertering igen.');
+    }
+
+    function normalizeHex(value) {
+      const hex = toHex(value);
+      return hex ? hex.toLowerCase() : null;
+    }
+
+    function deleteSelected() {
+      if (selectedElements.length === 0) return;
+      selectedElements.forEach((el) => el.remove());
+      captureCurrentSVG();
+      clearSelection();
+      setStatus('Slettede markerede elementer.');
+    }
+
+    function rotateSelected(delta) {
+      selectedElements.forEach((el) => {
+        const state = getTransformState(el);
+        const rot = state.rot + delta;
+        setTransformState(el, { ...state, rot });
+      });
+      captureCurrentSVG();
+      setStatus('Rotér anvendt.');
+    }
+
+    function flipSelected(axis) {
+      selectedElements.forEach((el) => {
+        const state = getTransformState(el);
+        const sx = axis === 'x' ? state.sx * -1 : state.sx;
+        const sy = axis === 'y' ? state.sy * -1 : state.sy;
+        setTransformState(el, { ...state, sx, sy });
+      });
+      captureCurrentSVG();
+      setStatus('Spejlvending anvendt.');
+    }
+
+    function alignSelected(mode) {
+      if (selectedElements.length < 2) return;
+      const [anchor, ...rest] = selectedElements;
+      const anchorBox = anchor.getBBox();
+      rest.forEach((el) => {
+        const box = el.getBBox();
+        const state = getTransformState(el);
+        let tx = state.tx;
+        let ty = state.ty;
+
+        switch (mode) {
+          case 'left':
+            tx += anchorBox.x - box.x;
+            break;
+          case 'center':
+            tx += anchorBox.x + anchorBox.width / 2 - (box.x + box.width / 2);
+            break;
+          case 'right':
+            tx += anchorBox.x + anchorBox.width - (box.x + box.width);
+            break;
+          case 'top':
+            ty += anchorBox.y - box.y;
+            break;
+          case 'middle':
+            ty += anchorBox.y + anchorBox.height / 2 - (box.y + box.height / 2);
+            break;
+          case 'bottom':
+            ty += anchorBox.y + anchorBox.height - (box.y + box.height);
+            break;
+          default:
+            break;
+        }
+
+        setTransformState(el, { ...state, tx, ty });
+      });
+      captureCurrentSVG();
+      setStatus('Align anvendt i forhold til første markerede element.');
+    }
+
+    function makeColorTransparent(hexColor) {
+      const target = normalizeHex(hexColor);
+      if (!target) {
+        setStatus('Angiv en gyldig farve før du gør den transparent.', true);
+        return;
+      }
+
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Ingen SVG at redigere endnu.', true);
+        return;
+      }
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      let changed = 0;
+      nodes.forEach((node) => {
+        if (!(node instanceof SVGElement)) return;
+        const fill = node.getAttribute('fill') || '';
+        const normalized = normalizeHex(fill);
+        if (normalized && normalized === target) {
+          if (!node.hasAttribute('data-original-fill')) {
+            node.setAttribute('data-original-fill', fill);
+          }
+          node.setAttribute('fill', 'none');
+          changed += 1;
+        }
+      });
+
+      if (changed > 0) {
+        captureCurrentSVG();
+        setStatus(`Gjorde ${changed} element(er) transparente for ${target}.`);
+      } else {
+        setStatus('Ingen elementer med den valgte farve blev fundet.', true);
+      }
+    }
+
+    deleteBtn.addEventListener('click', deleteSelected);
+    rotateLeftBtn.addEventListener('click', () => rotateSelected(-15));
+    rotateRightBtn.addEventListener('click', () => rotateSelected(15));
+    flipHBtn.addEventListener('click', () => flipSelected('x'));
+    flipVBtn.addEventListener('click', () => flipSelected('y'));
+    alignLeftBtn.addEventListener('click', () => alignSelected('left'));
+    alignCenterBtn.addEventListener('click', () => alignSelected('center'));
+    alignRightBtn.addEventListener('click', () => alignSelected('right'));
+    alignTopBtn.addEventListener('click', () => alignSelected('top'));
+    alignMiddleBtn.addEventListener('click', () => alignSelected('middle'));
+    alignBottomBtn.addEventListener('click', () => alignSelected('bottom'));
+
+    async function convertToSVG() {
+      const file = fileInput.files?.[0];
+      if (!ensurePNG(file) || !previewCtx) return;
+      if (!(await ensureTracer())) return;
+
+      clearSelection();
+      resetViewport();
+      inputPaletteSize = null;
+      refreshColorBounds();
+      downloadBtn.disabled = true;
+      setStatus('Indlæser fil …');
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+        if (!dataUrl) {
+          setStatus('Kunne ikke læse filen.', true);
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          // Skaler til maks 1024px bredde for performance men bevarer aspektforhold
+          const maxDim = 1024;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const width = Math.max(1, Math.round(img.width * scale));
+          const height = Math.max(1, Math.round(img.height * scale));
+
+          previewCanvas.width = width;
+          previewCanvas.height = height;
+          previewCtx.clearRect(0, 0, width, height);
+          previewCtx.drawImage(img, 0, 0, width, height);
+
+          const imageData = previewCtx.getImageData(0, 0, width, height);
+          inputPaletteSize = computePaletteSize(imageData);
+          refreshColorBounds();
+          if (inputPaletteSize) {
+            const baseMessage = `Opdagede ${inputPaletteSize} unikke farver i input.`;
+            if (matchPalette.checked) {
+              applyColorValue(inputPaletteSize);
+              setStatus(`${baseMessage} Spændet matcher nu input-paletten (0-${inputPaletteSize}).`);
+            } else {
+              setStatus(`${baseMessage} Spændet forbliver 0-512 med mindre du matcher paletten.`);
+            }
+          }
+          const options = mapOptions();
+          setStatus('Sporer konturer … dette kan tage lidt tid for detaljerede billeder.');
+
+          try {
+            const svgString = ImageTracer.imagedataToSVG(imageData, options);
+            if (!svgString || typeof svgString !== 'string') {
+              throw new Error('Tomt SVG-resultat');
+            }
+            renderSVG(svgString);
+          } catch (error) {
+            console.error(error);
+            const message = error instanceof Error ? error.message : 'ukendt fejl';
+            setStatus(`Vektorisering mislykkedes (${message}). Prøv med lavere detaljeringsgrad eller mindre billede.`, true);
+          }
+        };
+
+        img.onerror = () => setStatus('Kunne ikke indlæse billedet. Kontroller at filen er en gyldig PNG.', true);
+        img.src = dataUrl;
+      };
+
+      reader.onerror = () => setStatus('Kunne ikke læse filen.', true);
+      reader.readAsDataURL(file);
+    }
+
+    convertBtn.addEventListener('click', convertToSVG);
+
+    downloadBtn.addEventListener('click', () => {
+      if (!lastSVG) return;
+      const blob = new Blob([lastSVG], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'vectorized.svg';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
