@@ -1,5 +1,3 @@
-<img width="200" height="200" alt="SVGen_white (1)" src="https://github.com/user-attachments/assets/d2c02763-3c2e-420a-bfba-48ca51dc2801" />
-
 # SVGen
 Et enkeltstående HTML-værktøj til at vektorisere PNG-filer til detaljerede, redigerbare SVG'er direkte i browseren. Åbn `index.html` lokalt og brug sliderne til at styre detaljeringsgrad, geometrisk udjævning og et fleksibelt farveantal (0 til input-palettens størrelse, også når den overstiger 256). Du kan vælge at matche antallet af farver til inputfilens palet, bevare gradienter (øget farvebudget og sampling), gøre valgte farver transparente eller helt fjerne en baggrundsfarve (samplet fra PNG) til transparent, samt tilføje eftereffekter: feather/outer-glow, outline eller begge dele (0-50 px, farve → transparent). Redigér SVG'en på stedet med multiselect, sletning (inkl. Delete-tasten), rotation, spejlvending og alignment mellem elementer – uden at køre konverteringen igen. ImageTracer-biblioteket er bundlet i `vendor/` så værktøjet kan bruges offline, og hvis filen mangler forsøges automatisk et online fallback.
 
