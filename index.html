@@ -254,6 +254,38 @@
       display: none;
       z-index: 2;
     }
+
+    .effect-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin: 12px 0 18px;
+    }
+
+    .effect-cell {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .effect-cell .effect-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .effect-cell input[type="range"] {
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .effect-cell input[type="number"] {
+      width: 72px;
+    }
   </style>
   <script src="./vendor/imagetracer_v1.2.6.js"></script>
 </head>
@@ -311,45 +343,6 @@
       <button id="convertBtn">Konvertér til SVG</button>
       <button id="downloadBtn" class="secondary" disabled>Download SVG</button>
       <button id="resetViewBtn" class="secondary">Nulstil visning</button>
-      <span class="inline-flex">
-        <label for="colorPicker" style="margin:0;">Redigér farve</label>
-        <input id="colorPicker" class="swatch" type="color" value="#00ffff" disabled />
-      </span>
-      <span class="inline-flex">
-        <label for="transparentPicker" style="margin:0;">Gør farve transparent</label>
-        <input id="transparentPicker" class="swatch" type="color" value="#000000" disabled />
-        <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
-      </span>
-      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
-        <label for="glowRange" style="margin:0;">Feather/outer glow (<span id="glowValue">0 px</span>)</label>
-        <input id="glowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
-        <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
-        <input id="glowColor" class="swatch" type="color" value="#00ffff" />
-      </span>
-      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
-        <label for="outlineRange" style="margin:0;">Outline (<span id="outlineValue">0 px</span>)</label>
-        <input id="outlineRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
-        <input id="outlineNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
-        <input id="outlineColor" class="swatch" type="color" value="#00ffff" />
-      </span>
-      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
-        <label for="innerGlowRange" style="margin:0;">Inner glow (<span id="innerGlowValue">0 px</span>)</label>
-        <input id="innerGlowRange" type="range" min="0" max="50" step="1" value="0" style="flex:1; min-width:140px;" />
-        <input id="innerGlowNumber" type="number" min="0" max="50" step="1" value="0" style="width:72px;" />
-        <input id="innerGlowColor" class="swatch" type="color" value="#ffffff" />
-      </span>
-      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
-        <label for="innerFillColor" style="margin:0;">Inner fill (<span id="innerFillOpacityValue">0%</span>)</label>
-        <input id="innerFillColor" class="swatch" type="color" value="#ffffff" />
-        <input id="innerFillOpacityRange" type="range" min="0" max="100" step="1" value="0" style="flex:1; min-width:140px;" />
-        <input id="innerFillOpacityNumber" type="number" min="0" max="100" step="1" value="0" style="width:72px;" />
-      </span>
-      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
-        <label for="bgColorPicker" style="margin:0;">Baggrund → transparent</label>
-        <input id="bgColorPicker" class="swatch" type="color" value="#000000" />
-        <button id="sampleBgBtn" class="secondary" style="padding:8px 12px;">Vælg fra PNG</button>
-        <button id="applyBgRemovalBtn" class="secondary" style="padding:8px 12px;">Fjern baggrund</button>
-      </span>
       <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
         <label for="exportWidth" style="margin:0;">Outputstørrelse (px)</label>
         <input id="exportWidth" type="number" min="1" step="1" value="1024" style="width:90px;" />
@@ -359,6 +352,59 @@
           <input id="lockAspect" type="checkbox" checked />
           <span>Lås højde/bredde-forhold</span>
         </label>
+      </span>
+    </div>
+
+    <div class="effect-grid">
+      <div class="effect-cell">
+        <label for="glowRange">Feather/outer glow (<span id="glowValue">0 px</span>)</label>
+        <div class="effect-control">
+          <input id="glowRange" type="range" min="0" max="50" step="1" value="0" />
+          <input id="glowNumber" type="number" min="0" max="50" step="1" value="0" />
+          <input id="glowColor" class="swatch" type="color" value="#00ffff" />
+        </div>
+      </div>
+      <div class="effect-cell">
+        <label for="outlineRange">Outline (<span id="outlineValue">0 px</span>)</label>
+        <div class="effect-control">
+          <input id="outlineRange" type="range" min="0" max="50" step="1" value="0" />
+          <input id="outlineNumber" type="number" min="0" max="50" step="1" value="0" />
+          <input id="outlineColor" class="swatch" type="color" value="#00ffff" />
+        </div>
+      </div>
+      <div class="effect-cell">
+        <label for="innerGlowRange">Inner glow (<span id="innerGlowValue">0 px</span>)</label>
+        <div class="effect-control">
+          <input id="innerGlowRange" type="range" min="0" max="50" step="1" value="0" />
+          <input id="innerGlowNumber" type="number" min="0" max="50" step="1" value="0" />
+          <input id="innerGlowColor" class="swatch" type="color" value="#ffffff" />
+        </div>
+      </div>
+      <div class="effect-cell">
+        <label for="innerFillColor">Inner fill (<span id="innerFillOpacityValue">0%</span>)</label>
+        <div class="effect-control">
+          <input id="innerFillColor" class="swatch" type="color" value="#ffffff" />
+          <input id="innerFillOpacityRange" type="range" min="0" max="100" step="1" value="0" />
+          <input id="innerFillOpacityNumber" type="number" min="0" max="100" step="1" value="0" />
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="bgColorPicker" style="margin:0;">Baggrund → transparent</label>
+        <input id="bgColorPicker" class="swatch" type="color" value="#000000" />
+        <button id="sampleBgBtn" class="secondary" style="padding:8px 12px;">Vælg fra PNG</button>
+        <button id="applyBgRemovalBtn" class="secondary" style="padding:8px 12px;">Fjern baggrund</button>
+      </span>
+      <span class="inline-flex">
+        <label for="colorPicker" style="margin:0;">Redigér farve</label>
+        <input id="colorPicker" class="swatch" type="color" value="#00ffff" disabled />
+      </span>
+      <span class="inline-flex">
+        <label for="transparentPicker" style="margin:0;">Gør farve transparent</label>
+        <input id="transparentPicker" class="swatch" type="color" value="#000000" disabled />
+        <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
     </div>
 
