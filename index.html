@@ -1207,6 +1207,7 @@
     function updateEditControls() {
       const hasSelection = selectedElements.length > 0;
       const multiSelect = selectedElements.length > 1;
+      const hasSVG = Boolean(svgOutput.querySelector('svg'));
 
       [deleteBtn, rotateLeftBtn, rotateRightBtn, flipHBtn, flipVBtn].forEach((btn) => {
         btn.disabled = !hasSelection;
@@ -1216,9 +1217,9 @@
         btn.disabled = !multiSelect;
       });
 
-      colorPicker.disabled = !hasSelection;
-      transparentPicker.disabled = !svgOutput.querySelector('svg');
-      makeTransparentBtn.disabled = !svgOutput.querySelector('svg');
+      colorPicker.disabled = !hasSVG;
+      transparentPicker.disabled = !hasSVG;
+      makeTransparentBtn.disabled = !hasSVG;
     }
 
     function clearSelection() {
@@ -1361,12 +1362,24 @@
     }
 
     colorPicker.addEventListener('input', () => {
-      if (selectedElements.length === 0) return;
-      selectedElements.forEach((el) => {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+
+      const nodes =
+        selectedElements.length > 0
+          ? selectedElements
+          : Array.from(svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline'));
+
+      if (nodes.length === 0) return;
+
+      nodes.forEach((el) => {
+        if (!(el instanceof SVGElement)) return;
         el.setAttribute('fill', colorPicker.value);
       });
+
       captureCurrentSVG();
-      setStatus('Opdaterede farve på markerede elementer.');
+      const scope = selectedElements.length > 0 ? 'markerede elementer' : 'hele billedet';
+      setStatus(`Opdaterede farve på ${scope}.`);
     });
 
     makeTransparentBtn.addEventListener('click', () => {
