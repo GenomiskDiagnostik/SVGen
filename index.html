@@ -233,7 +233,11 @@
     }
 
     #svgOutput {
-      overflow: hidden;
+      overflow: visible;
+    }
+
+    #svgViewport {
+      overflow: visible;
     }
 
     input[type="range"].warn-orange {
@@ -406,6 +410,13 @@
         <input id="transparentPicker" class="swatch" type="color" value="#000000" disabled />
         <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="replaceFromPicker" style="margin:0;">Erstat farve</label>
+        <input id="replaceFromPicker" class="swatch" type="color" value="#000000" disabled />
+        <span style="color:var(--muted);">→</span>
+        <input id="replaceToPicker" class="swatch" type="color" value="#00ffff" disabled />
+        <button id="replaceColorBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
+      </span>
     </div>
 
     <div class="actions" style="flex-wrap:wrap;">
@@ -485,6 +496,9 @@
     const colorPicker = document.getElementById('colorPicker');
     const transparentPicker = document.getElementById('transparentPicker');
     const makeTransparentBtn = document.getElementById('makeTransparentBtn');
+    const replaceFromPicker = document.getElementById('replaceFromPicker');
+    const replaceToPicker = document.getElementById('replaceToPicker');
+    const replaceColorBtn = document.getElementById('replaceColorBtn');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
     const previewInner = document.getElementById('previewInner');
@@ -1207,6 +1221,7 @@
     function updateEditControls() {
       const hasSelection = selectedElements.length > 0;
       const multiSelect = selectedElements.length > 1;
+      const hasSVG = Boolean(svgOutput.querySelector('svg'));
 
       [deleteBtn, rotateLeftBtn, rotateRightBtn, flipHBtn, flipVBtn].forEach((btn) => {
         btn.disabled = !hasSelection;
@@ -1216,9 +1231,12 @@
         btn.disabled = !multiSelect;
       });
 
-      colorPicker.disabled = !hasSelection;
-      transparentPicker.disabled = !svgOutput.querySelector('svg');
-      makeTransparentBtn.disabled = !svgOutput.querySelector('svg');
+      colorPicker.disabled = !hasSVG;
+      transparentPicker.disabled = !hasSVG;
+      makeTransparentBtn.disabled = !hasSVG;
+      replaceFromPicker.disabled = !hasSVG;
+      replaceToPicker.disabled = !hasSVG;
+      replaceColorBtn.disabled = !hasSVG;
     }
 
     function clearSelection() {
@@ -1361,16 +1379,32 @@
     }
 
     colorPicker.addEventListener('input', () => {
-      if (selectedElements.length === 0) return;
-      selectedElements.forEach((el) => {
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) return;
+
+      const nodes =
+        selectedElements.length > 0
+          ? selectedElements
+          : Array.from(svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline'));
+
+      if (nodes.length === 0) return;
+
+      nodes.forEach((el) => {
+        if (!(el instanceof SVGElement)) return;
         el.setAttribute('fill', colorPicker.value);
       });
+
       captureCurrentSVG();
-      setStatus('Opdaterede farve på markerede elementer.');
+      const scope = selectedElements.length > 0 ? 'markerede elementer' : 'hele billedet';
+      setStatus(`Opdaterede farve på ${scope}.`);
     });
 
     makeTransparentBtn.addEventListener('click', () => {
       makeColorTransparent(transparentPicker.value);
+    });
+
+    replaceColorBtn.addEventListener('click', () => {
+      replaceColor(replaceFromPicker.value, replaceToPicker.value);
     });
 
     sampleBgBtn.addEventListener('click', () => {
@@ -1558,6 +1592,36 @@
       setStatus('Align anvendt i forhold til første markerede element.');
     }
 
+    function readColor(node, property) {
+      const attrValue = node.getAttribute(property);
+      if (attrValue && attrValue !== 'none') {
+        const normalized = normalizeHex(attrValue);
+        if (normalized) return { normalized, source: 'attr' };
+      }
+
+      if (node.style && node.style[property]) {
+        const normalized = normalizeHex(node.style[property]);
+        if (normalized) return { normalized, source: 'style' };
+      }
+
+      return null;
+    }
+
+    function applyColorChange(node, property, replacement) {
+      if (property === 'fill' && !node.hasAttribute('data-original-fill')) {
+        const current = node.getAttribute('fill');
+        if (current) {
+          node.setAttribute('data-original-fill', current);
+        }
+      }
+
+      if (node.style && node.style[property]) {
+        node.style[property] = replacement;
+      }
+
+      node.setAttribute(property, replacement);
+    }
+
     function makeColorTransparent(hexColor) {
       const target = normalizeHex(hexColor);
       if (!target) {
@@ -1575,13 +1639,9 @@
       let changed = 0;
       nodes.forEach((node) => {
         if (!(node instanceof SVGElement)) return;
-        const fill = node.getAttribute('fill') || '';
-        const normalized = normalizeHex(fill);
-        if (normalized && normalized === target) {
-          if (!node.hasAttribute('data-original-fill')) {
-            node.setAttribute('data-original-fill', fill);
-          }
-          node.setAttribute('fill', 'none');
+        const fill = readColor(node, 'fill');
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', 'none');
           changed += 1;
         }
       });
@@ -1589,6 +1649,57 @@
       if (changed > 0) {
         captureCurrentSVG();
         setStatus(`Gjorde ${changed} element(er) transparente for ${target}.`);
+      } else {
+        setStatus('Ingen elementer med den valgte farve blev fundet.', true);
+      }
+    }
+
+    function replaceColor(fromHex, toHex) {
+      const target = normalizeHex(fromHex);
+      const replacement = normalizeHex(toHex);
+
+      if (!target || !replacement) {
+        setStatus('Angiv gyldige farver før du erstatter.', true);
+        return;
+      }
+
+      if (target === replacement) {
+        setStatus('Kilde- og målfarve er ens. Vælg to forskellige farver.', true);
+        return;
+      }
+
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Ingen SVG at redigere endnu.', true);
+        return;
+      }
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      let changed = 0;
+
+      nodes.forEach((node) => {
+        if (!(node instanceof SVGElement)) return;
+
+        const fill = readColor(node, 'fill');
+        const stroke = readColor(node, 'stroke');
+        let nodeChanged = false;
+
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', replacement);
+          nodeChanged = true;
+        }
+
+        if (stroke && stroke.normalized === target) {
+          applyColorChange(node, 'stroke', replacement);
+          nodeChanged = true;
+        }
+
+        if (nodeChanged) changed += 1;
+      });
+
+      if (changed > 0) {
+        captureCurrentSVG();
+        setStatus(`Erstattede ${target} med ${replacement} på ${changed} element(er).`);
       } else {
         setStatus('Ingen elementer med den valgte farve blev fundet.', true);
       }
@@ -1611,17 +1722,15 @@
       let changed = 0;
       nodes.forEach((node) => {
         if (!(node instanceof SVGElement)) return;
-        const fill = node.getAttribute('fill') || '';
-        const stroke = node.getAttribute('stroke') || '';
-        const normalizedFill = normalizeHex(fill);
-        const normalizedStroke = normalizeHex(stroke);
+        const fill = readColor(node, 'fill');
+        const stroke = readColor(node, 'stroke');
         let nodeChanged = false;
-        if (normalizedFill && normalizedFill === target) {
-          node.setAttribute('fill', 'none');
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', 'none');
           nodeChanged = true;
         }
-        if (normalizedStroke && normalizedStroke === target) {
-          node.setAttribute('stroke', 'none');
+        if (stroke && stroke.normalized === target) {
+          applyColorChange(node, 'stroke', 'none');
           nodeChanged = true;
         }
         if (nodeChanged) changed += 1;
@@ -1840,7 +1949,10 @@
         innerFillFlood.setAttribute('flood-opacity', includeInnerFill ? String(innerFillPercent / 100) : '0');
       }
 
-      svgEl.style.filter = `url(#${GLOW_FILTER_ID})`;
+      // Apply both CSS and XML attributes to ensure the preview renders the filter across browsers.
+      const filterRef = `url(#${GLOW_FILTER_ID})`;
+      svgEl.style.filter = filterRef;
+      svgEl.setAttribute('filter', filterRef);
       captureCurrentSVG();
     }
 
