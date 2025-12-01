@@ -233,7 +233,11 @@
     }
 
     #svgOutput {
-      overflow: hidden;
+      overflow: visible;
+    }
+
+    #svgViewport {
+      overflow: visible;
     }
 
     input[type="range"].warn-orange {
@@ -1588,6 +1592,36 @@
       setStatus('Align anvendt i forhold til første markerede element.');
     }
 
+    function readColor(node, property) {
+      const attrValue = node.getAttribute(property);
+      if (attrValue && attrValue !== 'none') {
+        const normalized = normalizeHex(attrValue);
+        if (normalized) return { normalized, source: 'attr' };
+      }
+
+      if (node.style && node.style[property]) {
+        const normalized = normalizeHex(node.style[property]);
+        if (normalized) return { normalized, source: 'style' };
+      }
+
+      return null;
+    }
+
+    function applyColorChange(node, property, replacement) {
+      if (property === 'fill' && !node.hasAttribute('data-original-fill')) {
+        const current = node.getAttribute('fill');
+        if (current) {
+          node.setAttribute('data-original-fill', current);
+        }
+      }
+
+      if (node.style && node.style[property]) {
+        node.style[property] = replacement;
+      }
+
+      node.setAttribute(property, replacement);
+    }
+
     function makeColorTransparent(hexColor) {
       const target = normalizeHex(hexColor);
       if (!target) {
@@ -1605,13 +1639,9 @@
       let changed = 0;
       nodes.forEach((node) => {
         if (!(node instanceof SVGElement)) return;
-        const fill = node.getAttribute('fill') || '';
-        const normalized = normalizeHex(fill);
-        if (normalized && normalized === target) {
-          if (!node.hasAttribute('data-original-fill')) {
-            node.setAttribute('data-original-fill', fill);
-          }
-          node.setAttribute('fill', 'none');
+        const fill = readColor(node, 'fill');
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', 'none');
           changed += 1;
         }
       });
@@ -1649,19 +1679,18 @@
 
       nodes.forEach((node) => {
         if (!(node instanceof SVGElement)) return;
-        const fill = node.getAttribute('fill') || '';
-        const stroke = node.getAttribute('stroke') || '';
-        const normalizedFill = normalizeHex(fill);
-        const normalizedStroke = normalizeHex(stroke);
+
+        const fill = readColor(node, 'fill');
+        const stroke = readColor(node, 'stroke');
         let nodeChanged = false;
 
-        if (normalizedFill && normalizedFill === target) {
-          node.setAttribute('fill', replacement);
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', replacement);
           nodeChanged = true;
         }
 
-        if (normalizedStroke && normalizedStroke === target) {
-          node.setAttribute('stroke', replacement);
+        if (stroke && stroke.normalized === target) {
+          applyColorChange(node, 'stroke', replacement);
           nodeChanged = true;
         }
 
@@ -1693,17 +1722,15 @@
       let changed = 0;
       nodes.forEach((node) => {
         if (!(node instanceof SVGElement)) return;
-        const fill = node.getAttribute('fill') || '';
-        const stroke = node.getAttribute('stroke') || '';
-        const normalizedFill = normalizeHex(fill);
-        const normalizedStroke = normalizeHex(stroke);
+        const fill = readColor(node, 'fill');
+        const stroke = readColor(node, 'stroke');
         let nodeChanged = false;
-        if (normalizedFill && normalizedFill === target) {
-          node.setAttribute('fill', 'none');
+        if (fill && fill.normalized === target) {
+          applyColorChange(node, 'fill', 'none');
           nodeChanged = true;
         }
-        if (normalizedStroke && normalizedStroke === target) {
-          node.setAttribute('stroke', 'none');
+        if (stroke && stroke.normalized === target) {
+          applyColorChange(node, 'stroke', 'none');
           nodeChanged = true;
         }
         if (nodeChanged) changed += 1;
