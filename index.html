@@ -1840,7 +1840,10 @@
         innerFillFlood.setAttribute('flood-opacity', includeInnerFill ? String(innerFillPercent / 100) : '0');
       }
 
-      svgEl.style.filter = `url(#${GLOW_FILTER_ID})`;
+      // Apply both CSS and XML attributes to ensure the preview renders the filter across browsers.
+      const filterRef = `url(#${GLOW_FILTER_ID})`;
+      svgEl.style.filter = filterRef;
+      svgEl.setAttribute('filter', filterRef);
       captureCurrentSVG();
     }
 
