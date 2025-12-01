@@ -406,6 +406,13 @@
         <input id="transparentPicker" class="swatch" type="color" value="#000000" disabled />
         <button id="makeTransparentBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
       </span>
+      <span class="inline-flex" style="flex-wrap:wrap; gap:6px; align-items:center;">
+        <label for="replaceFromPicker" style="margin:0;">Erstat farve</label>
+        <input id="replaceFromPicker" class="swatch" type="color" value="#000000" disabled />
+        <span style="color:var(--muted);">→</span>
+        <input id="replaceToPicker" class="swatch" type="color" value="#00ffff" disabled />
+        <button id="replaceColorBtn" class="secondary" disabled style="padding:8px 12px;">Anvend</button>
+      </span>
     </div>
 
     <div class="actions" style="flex-wrap:wrap;">
@@ -485,6 +492,9 @@
     const colorPicker = document.getElementById('colorPicker');
     const transparentPicker = document.getElementById('transparentPicker');
     const makeTransparentBtn = document.getElementById('makeTransparentBtn');
+    const replaceFromPicker = document.getElementById('replaceFromPicker');
+    const replaceToPicker = document.getElementById('replaceToPicker');
+    const replaceColorBtn = document.getElementById('replaceColorBtn');
     const previewCanvas = document.getElementById('previewCanvas');
     const previewCtx = previewCanvas.getContext('2d');
     const previewInner = document.getElementById('previewInner');
@@ -1220,6 +1230,9 @@
       colorPicker.disabled = !hasSVG;
       transparentPicker.disabled = !hasSVG;
       makeTransparentBtn.disabled = !hasSVG;
+      replaceFromPicker.disabled = !hasSVG;
+      replaceToPicker.disabled = !hasSVG;
+      replaceColorBtn.disabled = !hasSVG;
     }
 
     function clearSelection() {
@@ -1384,6 +1397,10 @@
 
     makeTransparentBtn.addEventListener('click', () => {
       makeColorTransparent(transparentPicker.value);
+    });
+
+    replaceColorBtn.addEventListener('click', () => {
+      replaceColor(replaceFromPicker.value, replaceToPicker.value);
     });
 
     sampleBgBtn.addEventListener('click', () => {
@@ -1602,6 +1619,58 @@
       if (changed > 0) {
         captureCurrentSVG();
         setStatus(`Gjorde ${changed} element(er) transparente for ${target}.`);
+      } else {
+        setStatus('Ingen elementer med den valgte farve blev fundet.', true);
+      }
+    }
+
+    function replaceColor(fromHex, toHex) {
+      const target = normalizeHex(fromHex);
+      const replacement = normalizeHex(toHex);
+
+      if (!target || !replacement) {
+        setStatus('Angiv gyldige farver før du erstatter.', true);
+        return;
+      }
+
+      if (target === replacement) {
+        setStatus('Kilde- og målfarve er ens. Vælg to forskellige farver.', true);
+        return;
+      }
+
+      const svgEl = svgOutput.querySelector('svg');
+      if (!svgEl) {
+        setStatus('Ingen SVG at redigere endnu.', true);
+        return;
+      }
+
+      const nodes = svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, g');
+      let changed = 0;
+
+      nodes.forEach((node) => {
+        if (!(node instanceof SVGElement)) return;
+        const fill = node.getAttribute('fill') || '';
+        const stroke = node.getAttribute('stroke') || '';
+        const normalizedFill = normalizeHex(fill);
+        const normalizedStroke = normalizeHex(stroke);
+        let nodeChanged = false;
+
+        if (normalizedFill && normalizedFill === target) {
+          node.setAttribute('fill', replacement);
+          nodeChanged = true;
+        }
+
+        if (normalizedStroke && normalizedStroke === target) {
+          node.setAttribute('stroke', replacement);
+          nodeChanged = true;
+        }
+
+        if (nodeChanged) changed += 1;
+      });
+
+      if (changed > 0) {
+        captureCurrentSVG();
+        setStatus(`Erstattede ${target} med ${replacement} på ${changed} element(er).`);
       } else {
         setStatus('Ingen elementer med den valgte farve blev fundet.', true);
       }
